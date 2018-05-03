@@ -116,10 +116,6 @@ int main(int argc, char ** argv)
     ret = clEnqueueFillBuffer(command_queue, hash_table_mem, (const void *) &empty_hash_item, sizeof(Hash_item), 0, hash_table_size * sizeof(Hash_item), 0, NULL, NULL); 
     if(ret != CL_SUCCESS){ fprintf(stderr, "Could not initialize hash table. Error: %d\n", ret); exit(-1); }
 
-    // Load parameters
-    Parameters params = {z_value, kmer_size, query_len_bytes, (ulong) kmers_per_work_item};    
-    cl_mem params_mem = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(Parameters), &params, &ret);
-    if(ret != CL_SUCCESS){ fprintf(stderr, "Could not allocate memory for kmer sizes variable in device. Error: %d\n", ret); exit(-1); }
     
     // Allocate memory in device
     cl_mem query_mem = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, query_len_bytes * sizeof(char), query_mem_host, &ret);
@@ -167,6 +163,11 @@ int main(int argc, char ** argv)
 
     fprintf(stdout, "[INFO] Work items: %"PRIu64". Work groups: %"PRIu64". Total K-mers to be computed %"PRIu64"\n", (uint64_t) global_item_size, (uint64_t)(global_item_size/local_item_size), global_item_size * kmers_per_work_item);
 
+    // Load parameters
+    Parameters params = {z_value, kmer_size, query_len_bytes, (ulong) global_item_size, (ulong) kmers_per_work_item};    
+    cl_mem params_mem = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(Parameters), &params, &ret);
+    if(ret != CL_SUCCESS){ fprintf(stderr, "Could not allocate memory for kmer sizes variable in device. Error: %d\n", ret); exit(-1); }
+
 
     // Set the arguments of the kernel
     //__kernel void kernel_index(__global Hash_item * hash_table, __global Parameters * params, __global const char * sequence)
@@ -191,6 +192,7 @@ int main(int argc, char ** argv)
     ret = clReleaseKernel(kernel); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (3)\n"); exit(-1); }
     ret = clReleaseProgram(program); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (4)\n"); exit(-1); }
     ret = clReleaseMemObject(query_mem); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (5)\n"); exit(-1); }
+    ret = clReleaseMemObject(params_mem); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (6)\n"); exit(-1); }
     free(query_mem_host);
 
     fprintf(stdout, "[INFO] Kernel execution finished. Code = %d\n", ret);
@@ -225,7 +227,17 @@ int main(int argc, char ** argv)
     
     
     // Load new kernel
-    read_kernel = fopen("kernel_match.cl", "r");
+    switch(z_value){
+        case 1: read_kernel = fopen("kernel_match1.cl", "r");
+        break;
+        case 4: read_kernel = fopen("kernel_match2.cl", "r");
+        break;
+        case 8: read_kernel = fopen("kernel_match3.cl", "r");
+        break;
+        default: { fprintf(stderr, "Could not find kernel for z=%lu.\n", z_value); exit(-1); }
+        break;
+    }
+    
     if(!read_kernel){ fprintf(stderr, "Failed to load kernel (2).\n"); exit(-1); }
     source_str[0] = '\0';
     source_size = fread(source_str, 1, MAX_KERNEL_SIZE, read_kernel);
@@ -263,12 +275,17 @@ int main(int argc, char ** argv)
 
     fprintf(stdout, "[INFO] Work items: %"PRIu64". Work groups: %"PRIu64". Total K-mers to be computed %"PRIu64"\n", (uint64_t) global_item_size, (uint64_t)(global_item_size/local_item_size), global_item_size * kmers_per_work_item);
 
+    // Set new parameters
+    params.seq_length = ref_len_bytes;
+    params.t_work_items = global_item_size;
+    cl_mem params_mem_ref = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(Parameters), &params, &ret);
+    if(ret != CL_SUCCESS){ fprintf(stderr, "Could not allocate memory for kmer sizes variable in device. Error: %d\n", ret); exit(-1); }
 
     // Set the arguments of the kernel
     //__kernel void kernel_index(__global Hash_item * hash_table, __global Parameters * params, __global const char * sequence)
     ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), (void *)&hash_table_mem);
     if(ret != CL_SUCCESS){ fprintf(stderr, "Bad setting of param (1): %d\n", ret); exit(-1); }
-    ret = clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *)&params_mem);
+    ret = clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *)&params_mem_ref);
     if(ret != CL_SUCCESS){ fprintf(stderr, "Bad setting of param (2): %d\n", ret); exit(-1); }
     ret = clSetKernelArg(kernel, 2, sizeof(cl_mem), (void *)&ref_mem);
     if(ret != CL_SUCCESS){ fprintf(stderr, "Bad setting of param (3): %d\n", ret); exit(-1); }
@@ -437,7 +454,7 @@ void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, u
 
         if(strcmp(av[pNum], "-diff") == 0){
             *z_value = (ulong) atoi(av[pNum+1]);
-            if(atoi(av[pNum+1]) < 1) { fprintf(stderr, "Z-value must be >0\n"); exit(-1); }
+            if(*z_value != 1 && *z_value != 4 && *z_value != 8) { fprintf(stderr, "Z-value must be 1, 4 or 8\n"); exit(-1); }
         }
 
         pNum++;

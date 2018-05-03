@@ -39,7 +39,8 @@ __kernel void kernel_index(__global Hash_item * hash_table, __global Parameters 
 	for(j=0; j<kmers_in_work_item; j++){
 		
 		// Calculate next position so that access is coalescent
-		ulong pos = group_id * kmers_in_work_item + (local_id + (j * local_size));
+		ulong pos = (global_id * kmers_in_work_item) + j; 
+		//ulong pos = group_id * kmers_in_work_item + (local_id + (j * local_size));
 		// Coalescent type II
 		//ulong pos = group_id * kmers_in_work_item + (local_id * local_size) + j;
 		// Completely not coalescent
@@ -72,7 +73,7 @@ __kernel void kernel_index(__global Hash_item * hash_table, __global Parameters 
 
 		hash_full = hash12;
 		
-		for(k=FIXED_K; k<32; k+=params->z_value){
+		for(k=FIXED_K; k<params->kmer_size; k+=params->z_value){
 			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
 			switch(sequence[pos+k]){
 				case 'A': {}

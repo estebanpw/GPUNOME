@@ -29,6 +29,7 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 	ulong local_id = get_local_id(0);
 	ulong local_size = get_local_size(0);
 	ulong kmers_in_work_item = params->kmers_per_work_item;
+	ulong kmer_size = params->kmer_size;
 	ulong j, k;
 
 	// Debugging
@@ -39,7 +40,8 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 	for(j=0; j<kmers_in_work_item; j++){
 		
 		// Calculate next position so that access is coalescent
-		ulong pos = group_id * kmers_in_work_item + (local_id + (j * local_size));
+		ulong pos = (global_id * kmers_in_work_item) + j; 
+		//ulong pos = group_id * kmers_in_work_item + (local_id + (j * local_size));
 		// Coalescent type II
 		//ulong pos = group_id * kmers_in_work_item + (local_id * local_size) + j;
 		// Completely not coalescent
@@ -55,11 +57,11 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 		for(k=0; k<FIXED_K; k++){
 			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
 			switch(sequence[pos+k]){
-				case 'A': { hash12_rev += pow4[k] * 3; }
+				case 'A': { hash_full_rev += pow4[kmer_size-k-1] * 3; }
 				break;
-				case 'C': { hash12 += pow4[k]; hash12_rev += pow4[k] * 2; }
+				case 'C': { hash12 += pow4[k]; hash_full_rev += pow4[kmer_size-k-1] * 2; }
 				break;
-				case 'G': { hash12 += pow4[k] * 2; hash12_rev += pow4[k]; }
+				case 'G': { hash12 += pow4[k] * 2; hash_full_rev += pow4[kmer_size-k-1]; }
 				break;
 				case 'T': { hash12 += pow4[k] * 3; }
 				break;
@@ -71,15 +73,15 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 		}
 
 		hash_full = hash12;
-		
-		for(k=FIXED_K; k<32; k+=params->z_value){
+
+		for(k=FIXED_K; k<20; k+=params->z_value){
 			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
 			switch(sequence[pos+k]){
-				case 'A': { hash_full_rev += pow4[k] * 3; }
+				case 'A': { hash_full_rev += pow4[kmer_size-k-1] * 3; }
 				break;
-				case 'C': { hash_full += pow4[k]; hash_full_rev += pow4[k] * 2; }
+				case 'C': { hash_full += pow4[k]; hash_full_rev += pow4[kmer_size-k-1] * 2; }
 				break;
-				case 'G': { hash_full += pow4[k] * 2; hash_full_rev += pow4[k]; }
+				case 'G': { hash_full += pow4[k] * 2; hash_full_rev += pow4[kmer_size-k-1]; }
 				break;
 				case 'T': { hash_full += pow4[k] * 3; }
 				break;
@@ -89,6 +91,26 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 				break;
 			}
 		}
+		
+		for(k=20; k<kmer_size; k+=params->z_value){
+			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
+			switch(sequence[pos+k]){
+				case 'A': { hash12_rev += pow4[kmer_size - k - 1] * 3; }
+				break;
+				case 'C': { hash_full += pow4[k]; hash12_rev += pow4[kmer_size - k - 1] * 2; }
+				break;
+				case 'G': { hash_full += pow4[k] * 2; hash12_rev += pow4[kmer_size - k - 1]; }
+				break;
+				case 'T': { hash_full += pow4[k] * 3; }
+				break;
+				case '\n': { }
+				break;
+				default: { bad = 1; }
+				break;
+			}
+		}
+
+		hash_full_rev += hash12_rev;
 
 
 		if(bad == 0){

@@ -58,6 +58,8 @@ int main(int argc, char ** argv)
 
         if(CL_SUCCESS != (ret = clGetDeviceInfo(devices[i], CL_DEVICE_NAME, BUFFER_SIZE, device_info, NULL))) fprintf(stderr, "Failed to get device name %d\n", i);
         fprintf(stdout, "\tDevice [%d]: %s\n", i, device_info);
+        if(CL_SUCCESS != (ret = clGetDeviceInfo(devices[i], CL_DEVICE_VERSION, BUFFER_SIZE, device_info, NULL))) fprintf(stderr, "Failed to get device profile %d\n", i);
+        fprintf(stdout, "\t\tProfile      : %s\n", device_info);
         if(CL_SUCCESS != (ret = clGetDeviceInfo(devices[i], CL_DEVICE_AVAILABLE, sizeof(cl_bool), &device_available, NULL))){ fprintf(stderr, "Failed to get device availability %d\n", i); exit(-1); }
         fprintf(stdout, "\t\tis available?: %d\n", (int)device_available);
         if(CL_SUCCESS != (ret = clGetDeviceInfo(devices[i], CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(cl_ulong), &device_RAM, NULL))){ fprintf(stderr, "Failed to get device global memory %d\n", i); exit(-1); }
@@ -158,6 +160,7 @@ int main(int argc, char ** argv)
     if(ret != CL_SUCCESS){ fprintf(stderr, "Error creating kernel (1): %d\n", ret); exit(-1); }
 
     // Set working sizes
+    fprintf(stdout, "[INFO] Query len size: %"PRIu64"\n", query_len_bytes);
     size_t local_item_size = CORES_PER_COMPUTE_UNIT * 8; // Number of work items in a work group
     size_t global_item_size = (query_len_bytes - kmer_size + 1) / kmers_per_work_item ; // Each work item corresponds to several kmers
     global_item_size = global_item_size - (global_item_size % local_item_size); // Make it evenly divisable
@@ -192,6 +195,12 @@ int main(int argc, char ** argv)
 
     fprintf(stdout, "[INFO] Kernel execution finished. Code = %d\n", ret);
 
+
+    // Hash_item * h = (Hash_item *) malloc(hash_table_size*sizeof(Hash_item));
+    // if(h == NULL) { fprintf(stderr, "Could not allocate resulting hash table\n"); exit(-1); }
+    // ret = clEnqueueReadBuffer(command_queue, hash_table_mem, CL_TRUE, 0, hash_table_size*sizeof(Hash_item), h, 0, NULL, NULL);
+    // if(ret != CL_SUCCESS){ fprintf(stderr, "Could not read from buffer: %d\n", ret); exit(-1); }
+    // print_hash_table(h);
     
     ////////////////////////////////////////////////////////////////////////////////
     // Match hits
@@ -296,7 +305,7 @@ int main(int argc, char ** argv)
     // Scan hits table
     fprintf(stdout, "[INFO] Scanning hits table\n");
 
-    print_hash_table(h);
+    //print_hash_table(h);
 
     ulong dimension = 1000;
     ulong idx;
@@ -317,17 +326,17 @@ int main(int argc, char ** argv)
         if(h[idx].repeat == 2 && h[idx].pos_in_y < 0xFFFFFFFFFFFFFFFF && h[idx].pos_in_x > 0){
             // Plot it  
             // Convert scale to representation
-            printf("With PX: %"PRIu64" and PY:%"PRIu64" (RX, RY) %e %e\n", h[idx].pos_in_x, h[idx].pos_in_y, ratio_ref, ratio_query);
-            uint64_t redir_ref = (uint64_t) ((double)h[idx].pos_in_x / (ratio_ref));
-            uint64_t redir_query = (uint64_t) ((double)h[idx].pos_in_y / (ratio_query));
-            printf("Writing at %"PRIu64", %"PRIu64"\n", redir_query, redir_ref);
-            getchar();
+            //printf("With PX: %"PRIu64" and PY:%"PRIu64" (RX, RY) %e %e\n", h[idx].pos_in_x, h[idx].pos_in_y, ratio_ref, ratio_query);
+            uint64_t redir_ref = (uint64_t) ((double)h[idx].pos_in_y / (ratio_ref));
+            uint64_t redir_query = (uint64_t) ((double)h[idx].pos_in_x / (ratio_query));
+            //printf("Writing at %"PRIu64", %"PRIu64"\n", redir_query, redir_ref);
+            //getchar();
             double i_r = i_r_fix; double j_r = j_r_fix;
             while((uint64_t) i_r >= 1 && (uint64_t) j_r >= 1){
                 if((int64_t) redir_query - (int64_t) i_r > 0 && (int64_t) redir_ref - (int64_t) j_r > 0){
                     representation[(int64_t) redir_query - (int64_t) i_r][(int64_t) redir_ref - (int64_t) j_r]++;
                 }else{
-                    
+                    if(redir_query > dimension || redir_ref > dimension) fprintf(stderr, "Exceeded dimension: %"PRIu64", %"PRIu64"\n", redir_query, redir_ref);
                     representation[redir_query][redir_ref]++;
                     break;
                 }
@@ -348,10 +357,15 @@ int main(int argc, char ** argv)
 	    unique_diffuse += representation[i][dimension];
     }
 
-    for(i=0;i<dimension;i++){
-        free(representation[i]);
+    fclose(out);
+
+    free(h);
+    
+    for(j=0;j<dimension+1;j++){
+        free(representation[j]);
     }
     free(representation);
+    
 
     fprintf(stdout, "[INFO] Found %"PRIu64" unique hits for z = %"PRIu64".\n", unique_diffuse, z_value);
 
@@ -369,7 +383,7 @@ int main(int argc, char ** argv)
     ret = clReleaseCommandQueue(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (8)\n"); exit(-1); }
     ret = clReleaseContext(context); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (8)\n"); exit(-1); }
     
-    fclose(out);
+    
 
     return 0;
 }
@@ -443,7 +457,11 @@ void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, u
 
 
 void print_hash_table(Hash_item * h){
-    ulong i;
+    ulong i, sum = 0;
+    for(i=0; i<pow(4, FIXED_K); i++){
+        sum += h[i].repeat;
+    }
+    fprintf(stdout, "Sum is %lu\n", sum);
     for(i=0; i<pow(4, FIXED_K); i++){
         if(h[i].repeat == 2 && h[i].pos_in_x > 0 && h[i].pos_in_y < 0xFFFFFFFFFFFFFFFF ){
             /*

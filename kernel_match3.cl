@@ -76,29 +76,11 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 				break;
 			}
 		}
-		// Reverse part for first 12
-		for(k=0; k<FIXED_K; k+=ZVAL){
-			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
-			switch(sequence[pos+k]){
-				case 'A': { hash_full_rev += pow4[kmer_size-k-1] * 3; }
-				break;
-				case 'C': { hash_full_rev += pow4[kmer_size-k-1] * 2; }
-				break;
-				case 'G': { hash_full_rev += pow4[kmer_size-k-1]; }
-				break;
-				case 'T': {  }
-				break;
-				case '\n': {  }
-				break;
-				default: { bad = 1; }
-				break;
-			}
-		}
-
+		
 		hash_full = hash12;
 
-		// Forward part for in-between 8 nucleotides
-		for(k=FIXED_K; k<20; k+=ZVAL){
+		// Forward part for non indexing
+		for(k=FIXED_K; k<kmer_size; k+=ZVAL){
 			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
 			switch(sequence[pos+k]){
 				case 'A': {   }
@@ -116,17 +98,16 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 			}
 		}
 
-		// Reverse part for in-between 8 nucleotides
-		for(k=16; k<20; k+=ZVAL){
-			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
+		// Reverse part for non indexing nucleotides
+		for(k=3; k<20; k+=ZVAL){
 			switch(sequence[pos+k]){
-				case 'A': { hash_full_rev += pow4[kmer_size-k-1] * 3; }
+				case 'A': { hash_full_rev += pow4[kmer_size - k - 1] * 3; }
 				break;
-				case 'C': { hash_full += pow4[k]; hash_full_rev += pow4[kmer_size-k-1] * 2; }
+				case 'C': { hash_full_rev += pow4[kmer_size - k - 1] * 2; }
 				break;
-				case 'G': { hash_full += pow4[k] * 2; hash_full_rev += pow4[kmer_size-k-1]; }
+				case 'G': { hash_full_rev += pow4[kmer_size - k - 1]; }
 				break;
-				case 'T': { hash_full += pow4[k] * 3; }
+				case 'T': {  }
 				break;
 				case '\n': {  }
 				break;
@@ -135,27 +116,7 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 			}
 		}
 
-		// Forward part for last 12 nucleotides
-		for(k=20; k<kmer_size; k+=ZVAL){
-			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
-			switch(sequence[pos+k]){
-				case 'A': {  }
-				break;
-				case 'C': { hash_full += pow4[k]; }
-				break;
-				case 'G': { hash_full += pow4[k] * 2; }
-				break;
-				case 'T': { hash_full += pow4[k] * 3; }
-				break;
-				case '\n': {  }
-				break;
-				default: { bad = 1; }
-				break;
-			}
-		}
-
-		// Reverse part for last 12 nucleotides
-
+		// Reverse part for indexing nucleotides
 		for(k=20; k<kmer_size; k++){
 			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
 			switch(sequence[pos+k]){

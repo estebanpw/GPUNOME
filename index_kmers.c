@@ -15,7 +15,7 @@
 // Program main
 ////////////////////////////////////////////////////////////////////////////////
 
-void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, ulong * z_value, ulong * kmer_size, FILE ** ref, FILE ** out, ulong * kmers_per_work_item);
+void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, ulong * z_value, ulong * kmer_size, FILE ** ref, FILE ** out, ulong * kmers_per_work_item, unsigned char * overlapping);
 void print_hash_table(Hash_item * h);
 char * get_basename(char * path);
 
@@ -24,8 +24,9 @@ int main(int argc, char ** argv)
     cl_uint selected_device = 0;
     ulong z_value = 1, kmer_size = 32;
     ulong kmers_per_work_item = 32;
+    unsigned char overlapping = 0;
     FILE * query = NULL, * ref = NULL, * out = NULL;
-    init_args(argc, argv, &query, &selected_device, &z_value, &kmer_size, &ref, &out, &kmers_per_work_item);
+    init_args(argc, argv, &query, &selected_device, &z_value, &kmer_size, &ref, &out, &kmers_per_work_item, &overlapping);
 
     ////////////////////////////////////////////////////////////////////////////////
     // Get info of devices
@@ -122,7 +123,15 @@ int main(int argc, char ** argv)
     if(ret != CL_SUCCESS){ fprintf(stderr, "Could not allocate memory for query sequence in device. Error: %d\n", ret); exit(-1); }
 
     // Load kernel
-    FILE * read_kernel = fopen("kernel_index.cl", "r");
+    FILE * read_kernel; 
+    switch(overlapping){
+        case 0: { read_kernel = fopen("kernel_index_no_overlap.cl", "r"); fprintf(stdout, "[INFO] Using non overlapping k-mers\n"); } 
+        break;
+        case 1: { read_kernel = fopen("kernel_index.cl", "r"); fprintf(stdout, "[INFO] Using overlapping k-mers\n"); }
+        break;
+        default: { fprintf(stderr, "Bad choice of overlapping\n"); exit(-1); }
+        break;
+    }
     if(!read_kernel){ fprintf(stderr, "Failed to load kernel (1).\n"); exit(-1); }
     char * source_str = (char *) malloc(MAX_KERNEL_SIZE);
     if(source_str == NULL) { fprintf(stderr, "Could not allocate kernel\n"); exit(-1); }
@@ -158,7 +167,18 @@ int main(int argc, char ** argv)
     // Set working sizes
     fprintf(stdout, "[INFO] Query len size: %"PRIu64"\n", query_len_bytes);
     size_t local_item_size = CORES_PER_COMPUTE_UNIT * 8; // Number of work items in a work group
-    size_t global_item_size = (query_len_bytes - kmer_size + 1) / kmers_per_work_item ; // Each work item corresponds to several kmers
+    size_t global_item_size;
+    switch(overlapping){
+        case 0: { 
+            global_item_size = ((query_len_bytes - kmer_size + 1) / 32) / kmers_per_work_item;
+        } 
+        break;
+        case 1: { 
+            global_item_size = (query_len_bytes - kmer_size + 1) / kmers_per_work_item;
+        }
+        break;
+    }
+     
     global_item_size = global_item_size - (global_item_size % local_item_size); // Make it evenly divisable
 
     fprintf(stdout, "[INFO] Work items: %"PRIu64". Work groups: %"PRIu64". Total K-mers to be computed %"PRIu64"\n", (uint64_t) global_item_size, (uint64_t)(global_item_size/local_item_size), global_item_size * kmers_per_work_item);
@@ -396,7 +416,7 @@ int main(int argc, char ** argv)
     //ret = clReleaseProgram(program); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (4)\n"); exit(-1); }
     //ret = clReleaseMemObject(ref_mem); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (5)\n"); exit(-1); }
     ret = clReleaseMemObject(hash_table_mem); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (6)\n"); exit(-1); }
-    ret = clReleaseMemObject(params_mem); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (7)\n"); exit(-1); }
+    ret = clReleaseMemObject(params_mem_ref); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (7)\n"); exit(-1); }
     ret = clReleaseCommandQueue(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (8)\n"); exit(-1); }
     ret = clReleaseContext(context); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (8)\n"); exit(-1); }
     
@@ -406,7 +426,7 @@ int main(int argc, char ** argv)
 }
 
 
-void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, ulong * z_value, ulong * kmer_size, FILE ** ref, FILE ** out, ulong * kmers_per_work_item){
+void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, ulong * z_value, ulong * kmer_size, FILE ** ref, FILE ** out, ulong * kmers_per_work_item, unsigned char * overlapping){
     
     int pNum = 0;
     char * p1, * p2;
@@ -421,10 +441,16 @@ void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, u
             fprintf(stdout, "           -kmer       [Integer: k>=1] Size of K-mer to be used\n");
             fprintf(stdout, "           -kwi        [Integer: k>=1] Number of kmers per work item to be used\n");
             fprintf(stdout, "           -diff       [Integer: z>=1] Inexactness applied\n");
+            fprintf(stdout, "           --no-overlap   Turns overlap off in the indexing stage\n");
             fprintf(stdout, "           --help      Shows help for program usage\n");
             fprintf(stdout, "\n");
             exit(1);
         }
+
+        if(strcmp(av[pNum], "--no-overlap") == 0){
+            *overlapping = 0;
+        }
+
         if(strcmp(av[pNum], "-query") == 0){
             *query = fopen(av[pNum+1], "rt");
             if(*query==NULL){ fprintf(stderr, "Could not open query file\n"); exit(-1); }

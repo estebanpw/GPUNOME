@@ -8,6 +8,7 @@ typedef struct parameters{
     ulong z_value;
     ulong kmer_size;
 	ulong seq_length;
+	ulong t_work_items;
 	ulong kmers_per_work_item;
 } Parameters;
 

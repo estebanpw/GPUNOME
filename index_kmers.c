@@ -15,7 +15,7 @@
 // Program main
 ////////////////////////////////////////////////////////////////////////////////
 
-void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, ulong * z_value, ulong * kmer_size, FILE ** ref, FILE ** out, ulong * kmers_per_work_item, unsigned char * overlapping);
+void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, ulong * z_value, ulong * kmer_size, FILE ** ref, FILE ** out, ulong * kmers_per_work_item, ulong * overlapping);
 void print_hash_table(Hash_item * h);
 char * get_basename(char * path);
 
@@ -24,7 +24,7 @@ int main(int argc, char ** argv)
     cl_uint selected_device = 0;
     ulong z_value = 1, kmer_size = 32;
     ulong kmers_per_work_item = 32;
-    unsigned char overlapping = 1;
+    ulong overlapping = 32;
     FILE * query = NULL, * ref = NULL, * out = NULL;
     init_args(argc, argv, &query, &selected_device, &z_value, &kmer_size, &ref, &out, &kmers_per_work_item, &overlapping);
 
@@ -125,9 +125,11 @@ int main(int argc, char ** argv)
     // Load kernel
     FILE * read_kernel; 
     switch(overlapping){
-        case 0: { read_kernel = fopen("kernel_index_no_overlap.cl", "r"); fprintf(stdout, "[INFO] Using non overlapping k-mers\n"); } 
+        case 1: { read_kernel = fopen("kernel_index.cl", "r"); fprintf(stdout, "[INFO] Using overlapping k-mers\n"); } 
         break;
-        case 1: { read_kernel = fopen("kernel_index.cl", "r"); fprintf(stdout, "[INFO] Using overlapping k-mers\n"); }
+        case 16: { read_kernel = fopen("kernel_index_no_overlap_16.cl", "r"); fprintf(stdout, "[INFO] Using non overlapping k-mers\n"); }
+        break;
+        case 32: { read_kernel = fopen("kernel_index_no_overlap_32.cl", "r"); fprintf(stdout, "[INFO] Using non overlapping k-mers\n"); }
         break;
         default: { fprintf(stderr, "Bad choice of overlapping\n"); exit(-1); }
         break;
@@ -169,12 +171,16 @@ int main(int argc, char ** argv)
     size_t local_item_size = CORES_PER_COMPUTE_UNIT * 8; // Number of work items in a work group
     size_t global_item_size;
     switch(overlapping){
-        case 0: { 
-            global_item_size = ((query_len_bytes - kmer_size + 1) / 32) / kmers_per_work_item;
+        case 1: { 
+            global_item_size = ((query_len_bytes - kmer_size + 1)) / kmers_per_work_item;
         } 
         break;
-        case 1: { 
-            global_item_size = (query_len_bytes - kmer_size + 1) / kmers_per_work_item;
+        case 16: { 
+            global_item_size = ((query_len_bytes - kmer_size + 1) / 16) / kmers_per_work_item;
+        }
+        break;
+        case 32: { 
+            global_item_size = ((query_len_bytes - kmer_size + 1) / 32) / kmers_per_work_item;
         }
         break;
     }
@@ -427,7 +433,7 @@ int main(int argc, char ** argv)
 }
 
 
-void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, ulong * z_value, ulong * kmer_size, FILE ** ref, FILE ** out, ulong * kmers_per_work_item, unsigned char * overlapping){
+void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, ulong * z_value, ulong * kmer_size, FILE ** ref, FILE ** out, ulong * kmers_per_work_item, ulong * overlapping){
     
     int pNum = 0;
     char * p1, * p2;
@@ -442,14 +448,15 @@ void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, u
             fprintf(stdout, "           -kmer       [Integer: k>=1] Size of K-mer to be used\n");
             fprintf(stdout, "           -kwi        [Integer: k>=1] Number of kmers per work item to be used\n");
             fprintf(stdout, "           -diff       [Integer: z>=1] Inexactness applied\n");
-            fprintf(stdout, "           --no-overlap   Turns overlap off in the indexing stage\n");
+            fprintf(stdout, "           -olap       [Integer: 1, 16, 32] Spacing of seeds for index dictionary\n");
             fprintf(stdout, "           --help      Shows help for program usage\n");
             fprintf(stdout, "\n");
             exit(1);
         }
 
-        if(strcmp(av[pNum], "--no-overlap") == 0){
-            *overlapping = 0;
+        if(strcmp(av[pNum], "-olap") == 0){
+            *overlapping = (ulong) atoi(av[pNum+1]);
+            if(*overlapping != 1 && *overlapping != 16 && *overlapping != 32){ fprintf(stderr, "Spaced seeds must be 1, 16 or 32\n"); exit(-1); }
         }
 
         if(strcmp(av[pNum], "-query") == 0){

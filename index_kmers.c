@@ -24,7 +24,7 @@ int main(int argc, char ** argv)
     cl_uint selected_device = 0;
     ulong z_value = 1, kmer_size = 32;
     ulong kmers_per_work_item = 32;
-    unsigned char overlapping = 0;
+    unsigned char overlapping = 1;
     FILE * query = NULL, * ref = NULL, * out = NULL;
     init_args(argc, argv, &query, &selected_device, &z_value, &kmer_size, &ref, &out, &kmers_per_work_item, &overlapping);
 
@@ -227,6 +227,7 @@ int main(int argc, char ** argv)
     ////////////////////////////////////////////////////////////////////////////////
     // Match hits
     ////////////////////////////////////////////////////////////////////////////////
+
 
     
     // Read sequence size
@@ -506,7 +507,7 @@ void print_hash_table(Hash_item * h){
     }
     fprintf(stdout, "Sum is %lu\n", sum);
     for(i=0; i<pow(4, FIXED_K); i++){
-        if(h[i].repeat == 2 && h[i].pos_in_x > 0 && h[i].pos_in_y < 0xFFFFFFFFFFFFFFFF ){
+        if(1 || (h[i].repeat == 2 && h[i].pos_in_x > 0 && h[i].pos_in_y < 0xFFFFFFFFFFFFFFFF )){
             /*
             fprintf(stdout, "#%lu: [b]%u%u%u%u%u%u%u%u [R]%lu [K]%lu [PX]%lu [PY]%lu\n", i, h[i].bitmask[0], 
             h[i].bitmask[1], h[i].bitmask[2], h[i].bitmask[3], h[i].bitmask[4], h[i].bitmask[5], 

@@ -35,20 +35,19 @@ __kernel void kernel_index(__global Hash_item * hash_table, __global Parameters 
 	//hash_table[0].repeat = i;
 	//hash_table[1].repeat = local_size;
 	
+
 	// Until reaching end of sequence
 	for(j=0; j<kmers_in_work_item; j++){
 		
 		// Coalescent
+		//ulong pos = (global_id * 32) + (j * 32 * t_work_items);
+		// Non coalescent
 		ulong pos = (global_id * kmers_in_work_item * 32) + (j * 32);
-
-		// Non coalescent (Naive approach)
-		//ulong pos = (global_id * kmers_in_work_item) + j; 
 		
 		// Completely not coalescent
 		//uint seed = global_id;
 		//uint t = seed ^ (seed << 11);  
 		//ulong pos = (ulong) ((local_id ^ (local_id >> 19) ^ (t ^ (t >> 8))) % params->seq_length);
-		
 		
 
 		ulong hash12 = 0, hash_full = 0;
@@ -100,6 +99,7 @@ __kernel void kernel_index(__global Hash_item * hash_table, __global Parameters 
 			++(hash_table[hash12].repeat);
 			//hash_table[hash12].bitmask[pos % 8] = (unsigned char) 1;
 		}	
+		
 	}
-
+	
 }

@@ -10,6 +10,7 @@
 #define BUFFER_SIZE 2048
 #define MAX_KERNEL_SIZE BUFFER_SIZE*100
 #define CORES_PER_COMPUTE_UNIT 32
+#define DIMENSION 1000
 
 ////////////////////////////////////////////////////////////////////////////////
 // Program main
@@ -346,24 +347,30 @@ int main(int argc, char ** argv)
     ret = clEnqueueReadBuffer(command_queue, hash_table_mem, CL_TRUE, 0, hash_table_size*sizeof(Hash_item), h, 0, NULL, NULL);
     if(ret != CL_SUCCESS){ fprintf(stderr, "Could not read from buffer: %d\n", ret); exit(-1); }
 
+    ret = clReleaseMemObject(hash_table_mem); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (6)\n"); exit(-1); }
+    ret = clReleaseMemObject(params_mem_ref); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (7)\n"); exit(-1); }
+
     // Scan hits table
     fprintf(stdout, "[INFO] Scanning hits table\n");
 
     //print_hash_table(h);
 
-    ulong dimension = 1000;
     ulong idx;
-    uint64_t ** representation = (uint64_t **) calloc(dimension+1, sizeof(uint64_t *));
-    if(representation == NULL){ fprintf(stderr, "Could not allocate representation"); exit(-1); }
-    for(idx=0; idx<dimension+1; idx++){
-        representation[idx] = (uint64_t *) calloc(dimension+1, sizeof(uint64_t));
-        if(representation[idx] == NULL){ fprintf(stderr, "Could not allocate second loop representation"); exit(-1); }
+    uint64_t ** representation = (uint64_t **) calloc(DIMENSION+1, sizeof(uint64_t *));
+    unsigned char ** m_in = (unsigned char **) calloc(DIMENSION+1, sizeof(unsigned char *));
+    unsigned char ** m_out = (unsigned char **) calloc(DIMENSION+1, sizeof(unsigned char *));
+    if(representation == NULL || m_in == NULL || m_out == NULL){ fprintf(stderr, "Could not allocate representation"); exit(-1); }
+    for(idx=0; idx<DIMENSION+1; idx++){
+        representation[idx] = (uint64_t *) calloc(DIMENSION+1, sizeof(uint64_t));
+        m_in[idx] = (unsigned char *) calloc(DIMENSION+1, sizeof(unsigned char));
+        m_out[idx] = (unsigned char *) calloc(DIMENSION+1, sizeof(unsigned char));
+        if(representation[idx] == NULL || m_in[idx] == NULL || m_out[idx] == NULL){ fprintf(stderr, "Could not allocate second loop representation"); exit(-1); }
     }
 
-    double ratio_query = (double) query_len_bytes / dimension;
-    double ratio_ref = (double) ref_len_bytes / dimension;
-    double pixel_size_query = (double) dimension / (double) query_len_bytes;
-    double pixel_size_ref = (double) dimension / (double) ref_len_bytes;
+    double ratio_query = (double) query_len_bytes / DIMENSION;
+    double ratio_ref = (double) ref_len_bytes / DIMENSION;
+    double pixel_size_query = (double) DIMENSION / (double) query_len_bytes;
+    double pixel_size_ref = (double) DIMENSION / (double) ref_len_bytes;
     double i_r_fix = MAX(1.0, kmer_size * pixel_size_query);
     double j_r_fix = MAX(1.0, kmer_size * pixel_size_ref);
     for(idx=0; idx<hash_table_size; idx++){
@@ -380,7 +387,7 @@ int main(int argc, char ** argv)
                 if((int64_t) redir_query - (int64_t) i_r > 0 && (int64_t) redir_ref - (int64_t) j_r > 0){
                     representation[(int64_t) redir_query - (int64_t) i_r][(int64_t) redir_ref - (int64_t) j_r]++;
                 }else{
-                    if(redir_query > dimension || redir_ref > dimension) fprintf(stderr, "Exceeded dimension: %"PRIu64", %"PRIu64"\n", redir_query, redir_ref);
+                    if(redir_query > DIMENSION || redir_ref > DIMENSION) fprintf(stderr, "Exceeded dimension: %"PRIu64", %"PRIu64"\n", redir_query, redir_ref);
                     representation[redir_query][redir_ref]++;
                     break;
                 }
@@ -390,42 +397,177 @@ int main(int argc, char ** argv)
         }
     }
 
+    // Find number of unique diffuse hits
+    // and keep only maximums
     uint64_t unique_diffuse = 0;
-    ulong j;
-    for(i=0; i<dimension+1; i++){
-        for(j=0; j<dimension; j++){
-            fprintf(out, "%"PRIu64" ", representation[i][j]);
+    ulong j, value = representation[0][0], pos = 0;
+    for(i=0; i<DIMENSION+1; i++){
+
+        for(j=0; j<DIMENSION; j++){
 	        unique_diffuse += representation[i][j];
+
+            // Find max
+            if(representation[i][j] > value){
+                value = representation[i][j];
+                pos = j;
+            }
         }
-        fprintf(out, "%"PRIu64"\n",  representation[i][dimension]);
-	    unique_diffuse += representation[i][dimension];
+        unique_diffuse += representation[i][DIMENSION];
+
+        if(value > 0){ 
+            // Replace all points that are not the max
+            for(j=0; j<DIMENSION; j++){
+                representation[i][j] = 0;
+            }
+            // Set the max only
+            representation[i][pos] = 1;
+            m_in[i][pos] = 1;
+            value = 0;
+        }
+
+    }
+    fprintf(stdout, "[INFO] Found %"PRIu64" unique hits for z = %"PRIu64".\n", unique_diffuse, z_value);
+
+
+    // Repeat for the other coordinate
+    value = representation[0][0], pos = 0;
+    for(i=0; i<DIMENSION+1; i++){
+
+        for(j=0; j<DIMENSION; j++){
+
+
+            // Find max
+            if(representation[j][i] > value){
+                value = representation[j][i];
+                pos = j;
+            }
+        }
+        if(value > 0){
+            // Replace all points that are not the max
+            for(j=0; j<DIMENSION; j++){
+                representation[j][i] = 0;
+            }
+            // Set the max only
+            representation[pos][i] = 1;
+            m_in[i][pos] = 1;
+            value = 0;
+        }
+
+    }
+
+    // Apply filtering kernel on m_in
+
+    // Create matrix memory object
+    cl_mem m_in_mem = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, (DIMENSION+1)*(DIMENSION+1) * sizeof(unsigned char), m_in, &ret);
+    if(ret != CL_SUCCESS){ fprintf(stderr, "Could not allocate memory for image matrix. Error: %d\n", ret); exit(-1); }
+
+    // Allocate output matrix
+    cl_mem m_out_mem = clCreateBuffer(context, CL_MEM_READ_WRITE, (DIMENSION+1)*(DIMENSION+1) * sizeof(unsigned char), NULL, &ret);
+    if(ret != CL_SUCCESS){ fprintf(stderr, "Could not allocate memory for output image matrix in device. Error: %d\n", ret); exit(-1); }
+    
+    // Initialize hash table
+    unsigned char empty_char = 0;
+    ret = clEnqueueFillBuffer(command_queue, m_out_mem, (const void *) &empty_char, sizeof(unsigned char), 0, (DIMENSION+1)*(DIMENSION+1) * sizeof(unsigned char), 0, NULL, NULL); 
+    if(ret != CL_SUCCESS){ fprintf(stderr, "Could not initialize output matrix. Error: %d\n", ret); exit(-1); }
+
+    // Read new kernel
+
+    read_kernel = fopen("kernel_filter.cl", "r");
+    if(!read_kernel){ fprintf(stderr, "Failed to load kernel (3).\n"); exit(-1); }
+    source_str[0] = '\0';
+    source_size = fread(source_str, 1, MAX_KERNEL_SIZE, read_kernel);
+    fclose(read_kernel);
+
+    // Create a program from the kernel source
+    program = clCreateProgramWithSource(context, 1, (const char **) &source_str, (const size_t *) &source_size, &ret);
+    if(ret != CL_SUCCESS){ fprintf(stderr, "Error creating program (3): %d\n", ret); exit(-1); }
+    
+    // Build the program
+    ret = clBuildProgram(program, 1, &devices[selected_device], NULL, NULL, NULL);
+    if(ret != CL_SUCCESS){ 
+        fprintf(stderr, "Error building program (2): %d\n", ret); 
+        if (ret == CL_BUILD_PROGRAM_FAILURE) {
+            // Determine the size of the log
+            size_t log_size;
+            clGetProgramBuildInfo(program, devices[selected_device], CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+            // Allocate memory for the log
+            char *log = (char *) malloc(log_size);
+            // Get the log
+            clGetProgramBuildInfo(program, devices[selected_device], CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+            // Print the log
+            fprintf(stdout, "%s\n", log);
+        }
+        exit(-1); 
+    }
+
+    // Create the OpenCL kernel
+    kernel = clCreateKernel(program, "kernel_filter", &ret);
+    if(ret != CL_SUCCESS){ fprintf(stderr, "Error creating kernel (3): %d\n", ret); exit(-1); }
+
+    // Set parameters
+
+    ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), (void *)&m_in_mem);
+    if(ret != CL_SUCCESS){ fprintf(stderr, "Bad setting of param at image filter (1): %d\n", ret); exit(-1); }
+    ret = clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *)&m_out_mem);
+    if(ret != CL_SUCCESS){ fprintf(stderr, "Bad setting of param at image filter (2): %d\n", ret); exit(-1); }
+
+
+    // Set working sizes
+    size_t global_item_size2d[2] = {1000, 1000}; 
+    size_t local_item_size2d[2] = {10, 10}; 
+
+    fprintf(stdout, "[INFO] Filtering step: Work items: %"PRIu64". Work groups: %"PRIu64"\n", (uint64_t) global_item_size, (uint64_t)(global_item_size/local_item_size));
+
+
+    fprintf(stdout, "[INFO] Executing the kernel\n");
+    // Execute the OpenCL kernel on the lists
+    ret = clEnqueueNDRangeKernel(command_queue, kernel, 2, NULL, 
+            global_item_size2d, local_item_size2d, 0, NULL, NULL);
+    if(ret != CL_SUCCESS){ fprintf(stderr, "Error enqueuing kernel (3): %d\n", ret); exit(-1); }
+
+
+
+
+
+
+
+    // Write resulting matrix
+    for(i=0; i<DIMENSION+1; i++){
+        for(j=0; j<DIMENSION; j++){
+            fprintf(out, "%u ", m_out[i][j]);
+        }
+        fprintf(out, "%u\n",  m_out[i][DIMENSION]);
     }
 
     fclose(out);
 
     free(h);
     
-    for(j=0;j<dimension+1;j++){
+    for(j=0;j<DIMENSION+1;j++){
         free(representation[j]);
+        free(m_in[j]);
+        free(m_out[j]);
     }
     free(representation);
-    
-
-    fprintf(stdout, "[INFO] Found %"PRIu64" unique hits for z = %"PRIu64".\n", unique_diffuse, z_value);
+    free(m_in);
+    free(m_out);
 
 
     // print_hash_table(h);
     
     // Close and deallocate everything
-    //ret = clFlush(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (1): %d\n", ret); exit(-1); }
-    //ret = clFinish(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (2): %d\n", ret); exit(-1); }
-    //ret = clReleaseKernel(kernel); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (3)\n"); exit(-1); }
-    //ret = clReleaseProgram(program); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (4)\n"); exit(-1); }
+    ret = clFlush(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (1): %d\n", ret); exit(-1); }
+    ret = clFinish(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (2): %d\n", ret); exit(-1); }
+    ret = clReleaseKernel(kernel); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (3)\n"); exit(-1); }
+    ret = clReleaseProgram(program); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (4)\n"); exit(-1); }
     //ret = clReleaseMemObject(ref_mem); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (5)\n"); exit(-1); }
-    ret = clReleaseMemObject(hash_table_mem); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (6)\n"); exit(-1); }
-    ret = clReleaseMemObject(params_mem_ref); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (7)\n"); exit(-1); }
+    //ret = clReleaseMemObject(hash_table_mem); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (6)\n"); exit(-1); }
+    //ret = clReleaseMemObject(params_mem_ref); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (7)\n"); exit(-1); }
+    ret = clReleaseMemObject(m_in_mem); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (8)\n"); exit(-1); }
+    ret = clReleaseMemObject(m_out_mem); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (8)\n"); exit(-1); }
     ret = clReleaseCommandQueue(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (8)\n"); exit(-1); }
-    ret = clReleaseContext(context); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (8)\n"); exit(-1); }
+    ret = clReleaseContext(context); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (9)\n"); exit(-1); }
+    
     
     
 

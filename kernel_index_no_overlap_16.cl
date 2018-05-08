@@ -6,6 +6,7 @@ typedef struct parameters{
 	ulong seq_length;
 	ulong t_work_items;
 	ulong kmers_per_work_item;
+	ulong offset;
 } Parameters;
 
 typedef struct hash_item{
@@ -29,6 +30,7 @@ __kernel void kernel_index(__global Hash_item * hash_table, __global Parameters 
 	//ulong local_id = get_local_id(0);
 	ulong kmers_in_work_item = params->kmers_per_work_item;
 	ulong t_work_items = params->t_work_items;
+	ulong offset = params->offset;
 	ulong j, k;
 
 	// Debugging
@@ -95,7 +97,7 @@ __kernel void kernel_index(__global Hash_item * hash_table, __global Parameters 
 		if(bad == 0){
 			// Index with prefix
 			hash_table[hash12].key = hash_full;
-			hash_table[hash12].pos_in_x = pos;
+			hash_table[hash12].pos_in_x = pos + offset;
 			++(hash_table[hash12].repeat);
 			//hash_table[hash12].bitmask[pos % 8] = (unsigned char) 1;
 		}	

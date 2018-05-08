@@ -92,25 +92,15 @@ int main(int argc, char ** argv)
     // Make index dictionary
     ////////////////////////////////////////////////////////////////////////////////
 
-    // Read sequence size
-    fseek(query, 0, SEEK_END);
-    ulong query_len_bytes = (ulong) ftell(query);
-    rewind(query);
-
-
-    // Allocate memory in host
-    char * query_mem_host = (char *) malloc(query_len_bytes * sizeof(char));
-    if(query_mem_host == NULL){ fprintf(stderr, "Could not allocate host memory for query sequence\n"); exit(-1); }
-
-    // Load sequence into ram
-    if(query_len_bytes != fread(query_mem_host, sizeof(char), query_len_bytes, query)){ fprintf(stderr, "Read incorrect amount of bytes from query\n"); exit(-1); }
-    fclose(query);
-    
-    // Allocate hash table
+    // Calculate how much ram we can use for every chunk
     ulong hash_table_size = (ulong) pow(4.0, FIXED_K);
+    ulong ram_to_be_used = global_device_RAM - (hash_table_size * sizeof(Hash_item) + (8*1024*1024)); // Minus 8 MB for parameters and other stuff
+    ulong query_len_bytes = 0;
+
+    // Allocate hash table
     cl_mem hash_table_mem = clCreateBuffer(context, CL_MEM_READ_WRITE, hash_table_size * sizeof(Hash_item), NULL, &ret);
     if(ret != CL_SUCCESS){ fprintf(stderr, "Could not allocate memory for hash table in device. Error: %d\n", ret); exit(-1); }
-    
+
     // Initialize hash table
     Hash_item empty_hash_item;
     memset(&empty_hash_item, 0x0, sizeof(Hash_item));
@@ -118,10 +108,9 @@ int main(int argc, char ** argv)
     ret = clEnqueueFillBuffer(command_queue, hash_table_mem, (const void *) &empty_hash_item, sizeof(Hash_item), 0, hash_table_size * sizeof(Hash_item), 0, NULL, NULL); 
     if(ret != CL_SUCCESS){ fprintf(stderr, "Could not initialize hash table. Error: %d\n", ret); exit(-1); }
 
-    
-    // Allocate memory in device
-    cl_mem query_mem = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, query_len_bytes * sizeof(char), query_mem_host, &ret);
-    if(ret != CL_SUCCESS){ fprintf(stderr, "Could not allocate memory for query sequence in device. ***Use light version!*** Error: %d\n", ret); exit(-1); }
+    // Allocate memory in host for sequence chunk
+    char * query_mem_host = (char *) malloc(ram_to_be_used * sizeof(char));
+    if(query_mem_host == NULL){ fprintf(stderr, "Could not allocate host memory for query sequence\n"); exit(-1); }
 
     // Load kernel
     FILE * read_kernel; 
@@ -145,6 +134,7 @@ int main(int argc, char ** argv)
     cl_program program = clCreateProgramWithSource(context, 1, (const char **) &source_str, (const size_t *) &source_size, &ret);
     if(ret != CL_SUCCESS){ fprintf(stderr, "Error creating program (1): %d\n", ret); exit(-1); }
 
+
     // Build the program
     ret = clBuildProgram(program, 1, &devices[selected_device], NULL, NULL, NULL);
     if(ret != CL_SUCCESS){ 
@@ -167,50 +157,77 @@ int main(int argc, char ** argv)
     cl_kernel kernel = clCreateKernel(program, "kernel_index", &ret);
     if(ret != CL_SUCCESS){ fprintf(stderr, "Error creating kernel (1): %d\n", ret); exit(-1); }
 
-    // Set working sizes
-    fprintf(stdout, "[INFO] Query len size: %"PRIu64"\n", query_len_bytes);
+    // Set working size
     size_t local_item_size = CORES_PER_COMPUTE_UNIT * 8; // Number of work items in a work group
     size_t global_item_size;
-    switch(overlapping){
-        case 1: { 
-            global_item_size = ((query_len_bytes - kmer_size + 1)) / kmers_per_work_item;
-        } 
-        break;
-        case 16: { 
-            global_item_size = ((query_len_bytes - kmer_size + 1) / 16) / kmers_per_work_item;
+
+    // Read the input query in chunks
+    int split = 0;
+    uint64_t items_read = 0;
+    while(!feof(query)){
+
+        // Load sequence chunk into ram
+        items_read = fread(query_mem_host, sizeof(char), ram_to_be_used, &query[0]);
+        query_len_bytes += items_read;
+
+        // Allocate memory in device for sequence chunk
+        cl_mem query_mem = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, items_read * sizeof(char), query_mem_host, &ret);
+        if(ret != CL_SUCCESS){ fprintf(stderr, "Could not allocate memory for query sequence in device. Error: %d\n", ret); exit(-1); }
+
+        // Set global working sizes
+        fprintf(stdout, "[INFO] Split #%d: %"PRIu64"\n", split, items_read);
+        switch(overlapping){
+            case 1: { 
+                global_item_size = ((items_read - kmer_size + 1)) / kmers_per_work_item;
+            } 
+            break;
+            case 16: { 
+                global_item_size = ((items_read - kmer_size + 1) / 16) / kmers_per_work_item;
+            }
+            break;
+            case 32: { 
+                global_item_size = ((items_read - kmer_size + 1) / 32) / kmers_per_work_item;
+            }
+            break;
         }
-        break;
-        case 32: { 
-            global_item_size = ((query_len_bytes - kmer_size + 1) / 32) / kmers_per_work_item;
-        }
-        break;
+        
+        global_item_size = global_item_size - (global_item_size % local_item_size); // Make it evenly divisable
+
+        fprintf(stdout, "[INFO] Work items: %"PRIu64". Work groups: %"PRIu64". Total K-mers to be computed %"PRIu64"\n", (uint64_t) global_item_size, (uint64_t)(global_item_size/local_item_size), global_item_size * kmers_per_work_item);
+
+        // Load parameters
+        Parameters params = {z_value, kmer_size, items_read, (ulong) global_item_size, (ulong) kmers_per_work_item, query_len_bytes - items_read};    
+        cl_mem params_mem = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(Parameters), &params, &ret);
+        if(ret != CL_SUCCESS){ fprintf(stderr, "Could not allocate memory for kmer sizes variable in device. Error: %d\n", ret); exit(-1); }
+
+        // Set the arguments of the kernel
+        ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), (void *)&hash_table_mem);
+        if(ret != CL_SUCCESS){ fprintf(stderr, "Bad setting of param (1): %d\n", ret); exit(-1); }
+        ret = clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *)&params_mem);
+        if(ret != CL_SUCCESS){ fprintf(stderr, "Bad setting of param (2): %d\n", ret); exit(-1); }
+        ret = clSetKernelArg(kernel, 2, sizeof(cl_mem), (void *)&query_mem);
+        if(ret != CL_SUCCESS){ fprintf(stderr, "Bad setting of param (3): %d\n", ret); exit(-1); }
+
+        fprintf(stdout, "[INFO] Executing the kernel on split %d\n", split++);
+
+        // Execute the OpenCL kernel on the lists
+        ret = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL, 
+                &global_item_size, &local_item_size, 0, NULL, NULL);
+        if(ret != CL_SUCCESS){ fprintf(stderr, "Error enqueuing kernel (1): %d\n", ret); exit(-1); }
+
+        // Wait for kernel to finish
+        ret = clFlush(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad flush of event: %d\n", ret); exit(-1); }
+        ret = clFinish(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad finish of event: %d\n", ret); exit(-1); }
+
+        // Deallocation & cleanup for next round
+
+        ret = clReleaseMemObject(query_mem); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (5)\n"); exit(-1); }
+        ret = clReleaseMemObject(params_mem); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (6)\n"); exit(-1); }
+            
     }
-     
-    global_item_size = global_item_size - (global_item_size % local_item_size); // Make it evenly divisable
 
-    fprintf(stdout, "[INFO] Work items: %"PRIu64". Work groups: %"PRIu64". Total K-mers to be computed %"PRIu64"\n", (uint64_t) global_item_size, (uint64_t)(global_item_size/local_item_size), global_item_size * kmers_per_work_item);
-
-    // Load parameters
-    Parameters params = {z_value, kmer_size, query_len_bytes, (ulong) global_item_size, (ulong) kmers_per_work_item, 0};    
-    cl_mem params_mem = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(Parameters), &params, &ret);
-    if(ret != CL_SUCCESS){ fprintf(stderr, "Could not allocate memory for kmer sizes variable in device. Error: %d\n", ret); exit(-1); }
-
-
-    // Set the arguments of the kernel
-    //__kernel void kernel_index(__global Hash_item * hash_table, __global Parameters * params, __global const char * sequence)
-    ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), (void *)&hash_table_mem);
-    if(ret != CL_SUCCESS){ fprintf(stderr, "Bad setting of param (1): %d\n", ret); exit(-1); }
-    ret = clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *)&params_mem);
-    if(ret != CL_SUCCESS){ fprintf(stderr, "Bad setting of param (2): %d\n", ret); exit(-1); }
-    ret = clSetKernelArg(kernel, 2, sizeof(cl_mem), (void *)&query_mem);
-    if(ret != CL_SUCCESS){ fprintf(stderr, "Bad setting of param (3): %d\n", ret); exit(-1); }
-
-
-    fprintf(stdout, "[INFO] Executing the kernel\n");
-    // Execute the OpenCL kernel on the lists
-    ret = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL, 
-            &global_item_size, &local_item_size, 0, NULL, NULL);
-    if(ret != CL_SUCCESS){ fprintf(stderr, "Error enqueuing kernel (1): %d\n", ret); exit(-1); }
+    fclose(query);
+    free(query_mem_host);
 
 
     // Wait for kernel to finish
@@ -218,11 +235,10 @@ int main(int argc, char ** argv)
     ret = clFinish(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad finish of event: %d\n", ret); exit(-1); }
     ret = clReleaseKernel(kernel); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (3)\n"); exit(-1); }
     ret = clReleaseProgram(program); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (4)\n"); exit(-1); }
-    ret = clReleaseMemObject(query_mem); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (5)\n"); exit(-1); }
-    ret = clReleaseMemObject(params_mem); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (6)\n"); exit(-1); }
-    free(query_mem_host);
 
-    fprintf(stdout, "[INFO] Kernel execution finished. Code = %d\n", ret);
+    fprintf(stdout, "[INFO] Completed processing query splits\n");
+    
+    
 
 
     // Hash_item * h = (Hash_item *) malloc(hash_table_size*sizeof(Hash_item));
@@ -232,35 +248,15 @@ int main(int argc, char ** argv)
     // print_hash_table(h);
     
 
-
-
-
-
-
-
     ////////////////////////////////////////////////////////////////////////////////
     // Match hits
     ////////////////////////////////////////////////////////////////////////////////
 
 
-    
-    // Read sequence size
-    fseek(ref, 0, SEEK_END);
-    ulong ref_len_bytes = (ulong) ftell(ref);
-    rewind(ref);
-
     // Allocate memory in host
-    char * ref_mem_host = (char *) malloc(ref_len_bytes * sizeof(char));
+    char * ref_mem_host = (char *) malloc(ram_to_be_used * sizeof(char));
     if(ref_mem_host == NULL){ fprintf(stderr, "Could not allocate host memory for reference sequence\n"); exit(-1); }
 
-    // Load sequence into ram
-    if(ref_len_bytes != fread(ref_mem_host, sizeof(char), ref_len_bytes, ref)){ fprintf(stderr, "Read incorrect amount of bytes from query\n"); exit(-1); }
-    fclose(ref);
-
-    cl_mem ref_mem = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, ref_len_bytes * sizeof(char), ref_mem_host, &ret);
-    if(ret != CL_SUCCESS){ fprintf(stderr, "Could not allocate memory for reference sequence in device.***Use light version!*** Error: %d\n", ret); exit(-1); }
-    
-    
     // Load new kernel
     switch(z_value){
         case 1: read_kernel = fopen("kernel_match1.cl", "r");
@@ -272,7 +268,7 @@ int main(int argc, char ** argv)
         default: { fprintf(stderr, "Could not find kernel for z=%lu.\n", z_value); exit(-1); }
         break;
     }
-    
+
     if(!read_kernel){ fprintf(stderr, "Failed to load kernel (2).\n"); exit(-1); }
     source_str[0] = '\0';
     source_size = fread(source_str, 1, MAX_KERNEL_SIZE, read_kernel);
@@ -281,7 +277,7 @@ int main(int argc, char ** argv)
     // Create a program from the kernel source
     program = clCreateProgramWithSource(context, 1, (const char **) &source_str, (const size_t *) &source_size, &ret);
     if(ret != CL_SUCCESS){ fprintf(stderr, "Error creating program (2): %d\n", ret); exit(-1); }
-    
+
     // Build the program
     ret = clBuildProgram(program, 1, &devices[selected_device], NULL, NULL, NULL);
     if(ret != CL_SUCCESS){ 
@@ -304,53 +300,70 @@ int main(int argc, char ** argv)
     kernel = clCreateKernel(program, "kernel_match", &ret);
     if(ret != CL_SUCCESS){ fprintf(stderr, "Error creating kernel (2): %d\n", ret); exit(-1); }
 
-    // Set working sizes
-    global_item_size = (ref_len_bytes - kmer_size + 1) / kmers_per_work_item ; // Each work item corresponds to several kmers
-    global_item_size = global_item_size - (global_item_size % local_item_size); // Make it evenly divisable (yes, this makes some kmers forgotten)
+    // Read the reference sequence in chunks
+    split = 0;
+    items_read = 0;
+    ulong ref_len_bytes = 0;
+    while(!feof(ref)){
 
-    fprintf(stdout, "[INFO] Work items: %"PRIu64". Work groups: %"PRIu64". Total K-mers to be computed %"PRIu64"\n", (uint64_t) global_item_size, (uint64_t)(global_item_size/local_item_size), global_item_size * kmers_per_work_item);
+        // Load sequence chunk into ram
+        items_read = fread(ref_mem_host, sizeof(char), ram_to_be_used, &ref[0]);
+        ref_len_bytes += items_read;
 
-    // Set new parameters
-    params.seq_length = ref_len_bytes;
-    params.t_work_items = global_item_size;
-    cl_mem params_mem_ref = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(Parameters), &params, &ret);
-    if(ret != CL_SUCCESS){ fprintf(stderr, "Could not allocate memory for kmer sizes variable in device. Error: %d\n", ret); exit(-1); }
+        fprintf(stdout, "[INFO] Split #%d: %"PRIu64"\n", split, items_read);
 
-    // Set the arguments of the kernel
-    //__kernel void kernel_index(__global Hash_item * hash_table, __global Parameters * params, __global const char * sequence)
-    ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), (void *)&hash_table_mem);
-    if(ret != CL_SUCCESS){ fprintf(stderr, "Bad setting of param (1): %d\n", ret); exit(-1); }
-    ret = clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *)&params_mem_ref);
-    if(ret != CL_SUCCESS){ fprintf(stderr, "Bad setting of param (2): %d\n", ret); exit(-1); }
-    ret = clSetKernelArg(kernel, 2, sizeof(cl_mem), (void *)&ref_mem);
-    if(ret != CL_SUCCESS){ fprintf(stderr, "Bad setting of param (3): %d\n", ret); exit(-1); }
+        // Allocate ref chunk for device
+        cl_mem ref_mem = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, items_read * sizeof(char), ref_mem_host, &ret);
+        if(ret != CL_SUCCESS){ fprintf(stderr, "Could not allocate memory for reference sequence in device. Error: %d\n", ret); exit(-1); }
 
-    fprintf(stdout, "[INFO] Executing the kernel\n");
-    // Execute the OpenCL kernel on the lists
-    ret = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL, 
-            &global_item_size, &local_item_size, 0, NULL, NULL);
-    if(ret != CL_SUCCESS){ fprintf(stderr, "Error enqueuing kernel (2): %d\n", ret); exit(-1); }
+        // Set working sizes
+        global_item_size = (items_read - kmer_size + 1) / kmers_per_work_item ; // Each work item corresponds to several kmers
+        global_item_size = global_item_size - (global_item_size % local_item_size); // Make it evenly divisable (yes, this makes some kmers forgotten)
+
+        fprintf(stdout, "[INFO] Work items: %"PRIu64". Work groups: %"PRIu64". Total K-mers to be computed %"PRIu64"\n", (uint64_t) global_item_size, (uint64_t)(global_item_size/local_item_size), global_item_size * kmers_per_work_item);
+
+        // Set new parameters
+        Parameters params = {z_value, kmer_size, items_read, (ulong) global_item_size, (ulong) kmers_per_work_item, ref_len_bytes - items_read};    
+        cl_mem params_mem_ref = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(Parameters), &params, &ret);
+        if(ret != CL_SUCCESS){ fprintf(stderr, "Could not allocate memory for kmer sizes variable in device. Error: %d\n", ret); exit(-1); }
+
+
+        // Set the arguments of the kernel
+        ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), (void *)&hash_table_mem);
+        if(ret != CL_SUCCESS){ fprintf(stderr, "Bad setting of param (1): %d\n", ret); exit(-1); }
+        ret = clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *)&params_mem_ref);
+        if(ret != CL_SUCCESS){ fprintf(stderr, "Bad setting of param (2): %d\n", ret); exit(-1); }
+        ret = clSetKernelArg(kernel, 2, sizeof(cl_mem), (void *)&ref_mem);
+        if(ret != CL_SUCCESS){ fprintf(stderr, "Bad setting of param (3): %d\n", ret); exit(-1); }
+
+
+        fprintf(stdout, "[INFO] Executing the kernel on split %d\n", split++);
+
+        // Execute the OpenCL kernel on the lists
+        ret = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL, 
+                &global_item_size, &local_item_size, 0, NULL, NULL);
+        if(ret != CL_SUCCESS){ fprintf(stderr, "Error enqueuing kernel (2): %d\n", ret); exit(-1); }
+
+
+        // Wait for kernel to finish
+        ret = clFlush(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad flush of event: %d\n", ret); exit(-1); }
+        ret = clFinish(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad finish of event: %d\n", ret); exit(-1); }
+
+        // Deallocation & cleanup for next round
+
+        ret = clReleaseMemObject(ref_mem); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (5)\n"); exit(-1); }
+        ret = clReleaseMemObject(params_mem_ref); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (6)\n"); exit(-1); }
+
+    }
+
+    free(ref_mem_host);
+
+    
 
 
     // Wait for kernel to finish
-    ret = clFlush(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad flush of event (2): %d\n", ret); exit(-1); }
-    ret = clFinish(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad finish of event (2): %d\n", ret); exit(-1); }
     ret = clReleaseKernel(kernel); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (2.3)\n"); exit(-1); }
     ret = clReleaseProgram(program); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (2.4)\n"); exit(-1); }
-    ret = clReleaseMemObject(ref_mem); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (2.5)\n"); exit(-1); }
-    free(ref_mem_host);
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -371,7 +384,6 @@ int main(int argc, char ** argv)
     if(ret != CL_SUCCESS){ fprintf(stderr, "Could not read from buffer: %d\n", ret); exit(-1); }
 
     ret = clReleaseMemObject(hash_table_mem); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (6)\n"); exit(-1); }
-    ret = clReleaseMemObject(params_mem_ref); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (7)\n"); exit(-1); }
 
     // Scan hits table
     fprintf(stdout, "[INFO] Scanning hits table\n");

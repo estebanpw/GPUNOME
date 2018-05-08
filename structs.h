@@ -10,6 +10,7 @@ typedef struct parameters{
 	ulong seq_length;
 	ulong t_work_items;
 	ulong kmers_per_work_item;
+    ulong offset;
 } Parameters;
 
 typedef struct hash_item{

@@ -356,15 +356,14 @@ int main(int argc, char ** argv)
     //print_hash_table(h);
 
     ulong idx;
-    uint64_t ** representation = (uint64_t **) calloc(DIMENSION+1, sizeof(uint64_t *));
-    unsigned char ** m_in = (unsigned char **) calloc(DIMENSION+1, sizeof(unsigned char *));
-    unsigned char ** m_out = (unsigned char **) calloc(DIMENSION+1, sizeof(unsigned char *));
+    uint64_t ** representation = (uint64_t **) calloc(DIMENSION, sizeof(uint64_t *));
+    //unsigned char ** m_in = (unsigned char **) calloc(DIMENSION, sizeof(unsigned char *));
+    unsigned char * m_in = (unsigned char *) calloc(DIMENSION*DIMENSION, sizeof(unsigned char));
+    unsigned char * m_out = (unsigned char *) calloc(DIMENSION*DIMENSION, sizeof(unsigned char ));
     if(representation == NULL || m_in == NULL || m_out == NULL){ fprintf(stderr, "Could not allocate representation"); exit(-1); }
-    for(idx=0; idx<DIMENSION+1; idx++){
-        representation[idx] = (uint64_t *) calloc(DIMENSION+1, sizeof(uint64_t));
-        m_in[idx] = (unsigned char *) calloc(DIMENSION+1, sizeof(unsigned char));
-        m_out[idx] = (unsigned char *) calloc(DIMENSION+1, sizeof(unsigned char));
-        if(representation[idx] == NULL || m_in[idx] == NULL || m_out[idx] == NULL){ fprintf(stderr, "Could not allocate second loop representation"); exit(-1); }
+    for(idx=0; idx<DIMENSION; idx++){
+        representation[idx] = (uint64_t *) calloc(DIMENSION, sizeof(uint64_t));
+        if(representation[idx] == NULL){ fprintf(stderr, "Could not allocate second loop representation"); exit(-1); }
     }
 
     double ratio_query = (double) query_len_bytes / DIMENSION;
@@ -401,7 +400,7 @@ int main(int argc, char ** argv)
     // and keep only maximums
     uint64_t unique_diffuse = 0;
     ulong j, value = representation[0][0], pos = 0;
-    for(i=0; i<DIMENSION+1; i++){
+    for(i=0; i<DIMENSION; i++){
 
         for(j=0; j<DIMENSION; j++){
 	        unique_diffuse += representation[i][j];
@@ -412,7 +411,6 @@ int main(int argc, char ** argv)
                 pos = j;
             }
         }
-        unique_diffuse += representation[i][DIMENSION];
 
         if(value > 0){ 
             // Replace all points that are not the max
@@ -421,7 +419,7 @@ int main(int argc, char ** argv)
             }
             // Set the max only
             representation[i][pos] = 1;
-            m_in[i][pos] = 1;
+            m_in[i*DIMENSION+pos] = 1;
             value = 0;
         }
 
@@ -431,7 +429,7 @@ int main(int argc, char ** argv)
 
     // Repeat for the other coordinate
     value = representation[0][0], pos = 0;
-    for(i=0; i<DIMENSION+1; i++){
+    for(i=0; i<DIMENSION; i++){
 
         for(j=0; j<DIMENSION; j++){
 
@@ -449,7 +447,7 @@ int main(int argc, char ** argv)
             }
             // Set the max only
             representation[pos][i] = 1;
-            m_in[i][pos] = 1;
+            m_in[pos*DIMENSION+i] = 1;
             value = 0;
         }
 
@@ -457,17 +455,19 @@ int main(int argc, char ** argv)
 
     // Apply filtering kernel on m_in
 
+
     // Create matrix memory object
-    cl_mem m_in_mem = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, (DIMENSION+1)*(DIMENSION+1) * sizeof(unsigned char), m_in, &ret);
+    cl_mem m_in_mem = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, (DIMENSION)*(DIMENSION) * sizeof(unsigned char), m_in, &ret);
     if(ret != CL_SUCCESS){ fprintf(stderr, "Could not allocate memory for image matrix. Error: %d\n", ret); exit(-1); }
 
     // Allocate output matrix
-    cl_mem m_out_mem = clCreateBuffer(context, CL_MEM_READ_WRITE, (DIMENSION+1)*(DIMENSION+1) * sizeof(unsigned char), NULL, &ret);
+    cl_mem m_out_mem = clCreateBuffer(context, CL_MEM_READ_WRITE, (DIMENSION)*(DIMENSION) * sizeof(unsigned char), NULL, &ret);
     if(ret != CL_SUCCESS){ fprintf(stderr, "Could not allocate memory for output image matrix in device. Error: %d\n", ret); exit(-1); }
     
-    // Initialize hash table
+
+    // Initialize output matrix
     unsigned char empty_char = 0;
-    ret = clEnqueueFillBuffer(command_queue, m_out_mem, (const void *) &empty_char, sizeof(unsigned char), 0, (DIMENSION+1)*(DIMENSION+1) * sizeof(unsigned char), 0, NULL, NULL); 
+    ret = clEnqueueFillBuffer(command_queue, m_out_mem, (const void *) &empty_char, sizeof(unsigned char), 0, (DIMENSION)*(DIMENSION) * sizeof(unsigned char), 0, NULL, NULL); 
     if(ret != CL_SUCCESS){ fprintf(stderr, "Could not initialize output matrix. Error: %d\n", ret); exit(-1); }
 
     // Read new kernel
@@ -516,7 +516,7 @@ int main(int argc, char ** argv)
     size_t global_item_size2d[2] = {1000, 1000}; 
     size_t local_item_size2d[2] = {10, 10}; 
 
-    fprintf(stdout, "[INFO] Filtering step: Work items: %"PRIu64". Work groups: %"PRIu64"\n", (uint64_t) global_item_size, (uint64_t)(global_item_size/local_item_size));
+    fprintf(stdout, "[INFO] Filtering step: Work items: %"PRIu64"x%"PRIu64". Work group size: %"PRIu64"x%"PRIu64"\n", (uint64_t) global_item_size2d[0], (uint64_t) global_item_size2d[1], (uint64_t)local_item_size2d[0], (uint64_t)local_item_size2d[1]);
 
 
     fprintf(stdout, "[INFO] Executing the kernel\n");
@@ -525,28 +525,31 @@ int main(int argc, char ** argv)
             global_item_size2d, local_item_size2d, 0, NULL, NULL);
     if(ret != CL_SUCCESS){ fprintf(stderr, "Error enqueuing kernel (3): %d\n", ret); exit(-1); }
 
+    // Wait for kernel to finish
+    ret = clFlush(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Command execution went wrong (1): %d\n", ret); exit(-1); }
+    ret = clFinish(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Command execution went wrong (2): %d\n", ret); exit(-1); }
 
-
-
-
+    // Read resulting output matrix
+    ret = clEnqueueReadBuffer(command_queue, m_out_mem, CL_TRUE, 0, (DIMENSION)*(DIMENSION) * sizeof(unsigned char), m_out, 0, NULL, NULL);
+    if(ret != CL_SUCCESS){ fprintf(stderr, "Could not read output matrix from buffer: %d\n", ret); exit(-1); }
 
 
     // Write resulting matrix
-    for(i=0; i<DIMENSION+1; i++){
+    for(i=0; i<DIMENSION; i++){
         for(j=0; j<DIMENSION; j++){
-            fprintf(out, "%u ", m_out[i][j]);
+            fprintf(out, "%u ", m_out[i*DIMENSION+j]);
         }
-        fprintf(out, "%u\n",  m_out[i][DIMENSION]);
+        fprintf(out, "\n");
     }
 
     fclose(out);
 
     free(h);
     
-    for(j=0;j<DIMENSION+1;j++){
+    for(j=0;j<DIMENSION;j++){
         free(representation[j]);
-        free(m_in[j]);
-        free(m_out[j]);
+        //free(m_in[j]);
+        //free(m_out[j]);
     }
     free(representation);
     free(m_in);
@@ -556,8 +559,7 @@ int main(int argc, char ** argv)
     // print_hash_table(h);
     
     // Close and deallocate everything
-    ret = clFlush(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (1): %d\n", ret); exit(-1); }
-    ret = clFinish(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (2): %d\n", ret); exit(-1); }
+    
     ret = clReleaseKernel(kernel); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (3)\n"); exit(-1); }
     ret = clReleaseProgram(program); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (4)\n"); exit(-1); }
     //ret = clReleaseMemObject(ref_mem); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (5)\n"); exit(-1); }

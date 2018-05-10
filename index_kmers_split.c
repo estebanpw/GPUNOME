@@ -94,7 +94,7 @@ int main(int argc, char ** argv)
 
     // Calculate how much ram we can use for every chunk
     ulong hash_table_size = (ulong) pow(4.0, FIXED_K);
-    ulong ram_to_be_used = global_device_RAM - (hash_table_size * sizeof(Hash_item) + (8*1024*1024)); // Minus 8 MB for parameters and other stuff
+    ulong ram_to_be_used = global_device_RAM - (hash_table_size * sizeof(Hash_item) + (100*1024*1024)); // Minus 100 MB for parameters and other stuff
     ulong query_len_bytes = 0;
 
     // Allocate hash table

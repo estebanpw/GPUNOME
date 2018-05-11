@@ -18,6 +18,7 @@
 
 void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, ulong * z_value, ulong * kmer_size, FILE ** ref, FILE ** out, ulong * kmers_per_work_item, ulong * overlapping);
 void print_hash_table(Hash_item * h);
+char * get_dirname(char * path);
 char * get_basename(char * path);
 
 int main(int argc, char ** argv)
@@ -28,6 +29,8 @@ int main(int argc, char ** argv)
     ulong overlapping = 32;
     FILE * query = NULL, * ref = NULL, * out = NULL;
     init_args(argc, argv, &query, &selected_device, &z_value, &kmer_size, &ref, &out, &kmers_per_work_item, &overlapping);
+
+    char * path_kernels = get_dirname(argv[0]);
 
     ////////////////////////////////////////////////////////////////////////////////
     // Get info of devices
@@ -125,12 +128,15 @@ int main(int argc, char ** argv)
 
     // Load kernel
     FILE * read_kernel; 
+    char kernel_temp_path[BUFFER_SIZE];
+    kernel_temp_path[0] = '\0';
+    strcat(kernel_temp_path, path_kernels);
     switch(overlapping){
-        case 1: { read_kernel = fopen("kernel_index.cl", "r"); fprintf(stdout, "[INFO] Using overlapping k-mers\n"); } 
+        case 1: { strcat(kernel_temp_path, "/kernel_index.cl") ; read_kernel = fopen(kernel_temp_path, "r"); fprintf(stdout, "[INFO] Using overlapping k-mers\n"); } 
         break;
-        case 16: { read_kernel = fopen("kernel_index_no_overlap_16.cl", "r"); fprintf(stdout, "[INFO] Using non overlapping k-mers\n"); }
+        case 16: { strcat(kernel_temp_path, "/kernel_index_no_overlap_16.cl") ; read_kernel = fopen(kernel_temp_path, "r"); fprintf(stdout, "[INFO] Using non overlapping k-mers\n"); }
         break;
-        case 32: { read_kernel = fopen("kernel_index_no_overlap_32.cl", "r"); fprintf(stdout, "[INFO] Using non overlapping k-mers\n"); }
+        case 32: { strcat(kernel_temp_path, "/kernel_index_no_overlap_32.cl") ; read_kernel = fopen(kernel_temp_path, "r"); fprintf(stdout, "[INFO] Using non overlapping k-mers\n"); }
         break;
         default: { fprintf(stderr, "Bad choice of overlapping\n"); exit(-1); }
         break;
@@ -262,12 +268,15 @@ int main(int argc, char ** argv)
     
     
     // Load new kernel
+    kernel_temp_path[0] = '\0';
+    strcat(kernel_temp_path, path_kernels);
+
     switch(z_value){
-        case 1: read_kernel = fopen("kernel_match1.cl", "r");
+        case 1: { strcat(kernel_temp_path, "/kernel_match1.cl") ; read_kernel = fopen(kernel_temp_path, "r"); }
         break;
-        case 4: read_kernel = fopen("kernel_match2.cl", "r");
+        case 4: { strcat(kernel_temp_path, "/kernel_match2.cl") ; read_kernel = fopen(kernel_temp_path, "r"); }
         break;
-        case 8: read_kernel = fopen("kernel_match3.cl", "r");
+        case 8: { strcat(kernel_temp_path, "/kernel_match3.cl") ; read_kernel = fopen(kernel_temp_path, "r"); }
         break;
         default: { fprintf(stderr, "Could not find kernel for z=%lu.\n", z_value); exit(-1); }
         break;
@@ -494,8 +503,11 @@ int main(int argc, char ** argv)
     if(ret != CL_SUCCESS){ fprintf(stderr, "Could not initialize output matrix. Error: %d\n", ret); exit(-1); }
 
     // Read new kernel
+    kernel_temp_path[0] = '\0';
+    strcat(kernel_temp_path, path_kernels);
+    strcat(kernel_temp_path, "/kernel_filter.cl");
 
-    read_kernel = fopen("kernel_filter.cl", "r");
+    read_kernel = fopen(kernel_temp_path, "r");
     if(!read_kernel){ fprintf(stderr, "Failed to load kernel (3).\n"); exit(-1); }
     source_str[0] = '\0';
     source_size = fread(source_str, 1, MAX_KERNEL_SIZE, read_kernel);
@@ -594,7 +606,7 @@ int main(int argc, char ** argv)
     ret = clReleaseContext(context); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (9)\n"); exit(-1); }
     
     
-    
+    free(path_kernels);
 
     return 0;
 }
@@ -693,6 +705,23 @@ void print_hash_table(Hash_item * h){
         
         //if(h[i].key != 0) fprintf(stdout, "#%lu: [R]%lu [K]%lu [P]%lu\n", i, h[i].repeat, h[i].key, h[i].pos);
     }
+}
+
+char * get_dirname(char * path){
+    int pos_last = 0, i = 0;
+    while(path[i] != '\0'){
+        if(path[i] == '/'){
+            pos_last = i;
+        }
+        ++i;
+    }
+    char * dirname = (char *) malloc(BUFFER_SIZE * sizeof(char));
+    if(dirname == NULL){ fprintf(stderr, "Could not allocate dirname char\n"); exit(-1); }
+
+    memcpy(&dirname[0], &path[0], pos_last);
+    dirname[pos_last] = '\0';
+
+    return dirname;
 }
 
 char * get_basename(char * path){

@@ -2,11 +2,12 @@
 #!/usr/bin/env Rscript
 args = commandArgs(trailingOnly=TRUE)
  
-if(length(args) < 1){
-	stop("USE: Rscript --vanilla plot_and_score.R <matrix>")
+if(length(args) < 2){
+	stop("USE: Rscript --vanilla plot_and_score.R <matrix> <dim>")
 }
 
 path_mat = args[1]
+len_i <- as.numeric(args[2])
 
 fancy_name <- strsplit(path_mat, "/")
 fancy_name <- (fancy_name[[1]])[length(fancy_name[[1]])]
@@ -16,7 +17,7 @@ data <- as.matrix(read.csv(path_mat, sep = " "))
 
 score_copy <- data
 
-len_i <- 1000
+#len_i <- 1000
 
 # To compute the score
 score <- 0

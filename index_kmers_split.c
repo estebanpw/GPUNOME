@@ -469,6 +469,7 @@ int main(int argc, char ** argv)
 
     }
     fprintf(stdout, "[INFO] Found %"PRIu64" unique hits for z = %"PRIu64".\n", unique_diffuse, z_value);
+    fprintf(stdout, "; %"PRIu64" %"PRIu64"\n", z_value, unique_diffuse);
 
 
     // Repeat for the other coordinate

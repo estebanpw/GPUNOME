@@ -1,4 +1,4 @@
-#define DIMENSION 1000
+// #define DIMENSION 1000
 #define DIAG_LEN 4
 #define DIAG_EXTEND 5
 #define DIST_TH 1.5
@@ -7,13 +7,14 @@
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
 // Reduce this to 1D
-__kernel void kernel_filter(__global const unsigned char * m_in, __global unsigned char * m_out) {
+__kernel void kernel_filter(__global const unsigned char * m_in, __global unsigned char * m_out, __global ulong * dimension) {
  
     // Get the index of the current element to be processed
 	int x_id = (int) get_global_id(0);
 	int y_id = (int) get_global_id(1);
 
 	ulong sum = 0;
+	ulong DIMENSION = *dimension;
 	
 	// Kernel to improve diagonals (forward)
 

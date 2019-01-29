@@ -14,3 +14,6 @@ index_kmers: index_kmers.c
 
 index_kmers_split_dyn_mat: index_kmers_split_dyn_mat.c
 	$(CXX) $(CFLAGS) -I$(OPENCL) index_kmers_split_dyn_mat.c -l OpenCL -o $(BIN)/index_kmers_split_dyn_mat
+
+clean:
+	rm -rf $(BIN)/index_kmers $(BIN)/index_kmers_split_dyn_mat

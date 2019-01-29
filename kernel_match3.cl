@@ -20,11 +20,14 @@ typedef struct hash_item{
     ulong pos_in_y;
 } Hash_item;
 
+/*
 __constant ulong pow4[33]={1L, 4L, 16L, 64L, 256L, 1024L, 4096L, 16384L, 65536L, 
     262144L, 1048576L, 4194304L, 16777216L, 67108864L, 268435456L, 1073741824L, 4294967296L, 
     17179869184L, 68719476736L, 274877906944L, 1099511627776L, 4398046511104L, 17592186044416L, 
     70368744177664L, 281474976710656L, 1125899906842624L, 4503599627370496L, 18014398509481984L, 
     72057594037927936L, 288230376151711744L, 1152921504606846976L, 4611686018427387904L};
+
+*/
 
 __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters * params, __global const char * sequence) {
  
@@ -66,11 +69,11 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 			switch(sequence[pos+k]){
 				case 'A': {  }
 				break;
-				case 'C': { hash12 += pow4[k]; }
+				case 'C': { hash12 += (((ulong) 1) << (2*k)); }
 				break;
-				case 'G': { hash12 += pow4[k] * 2; }
+				case 'G': { hash12 += (((ulong) 1) << (2*k)) * 2; }
 				break;
-				case 'T': { hash12 += pow4[k] * 3; }
+				case 'T': { hash12 += (((ulong) 1) << (2*k)) * 3; }
 				break;
 				case '\n': {  }
 				break;
@@ -103,11 +106,11 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 		// Reverse part for non indexing nucleotides
 		for(k=3; k<20; k+=ZVAL){
 			switch(sequence[pos+k]){
-				case 'A': { hash_full_rev += pow4[kmer_size - k - 1] * 3; }
+				case 'A': { hash_full_rev += (2*(kmer_size - k - 1))) * 3; }
 				break;
-				case 'C': { hash_full_rev += pow4[kmer_size - k - 1] * 2; }
+				case 'C': { hash_full_rev += (2*(kmer_size - k - 1))) * 2; }
 				break;
-				case 'G': { hash_full_rev += pow4[kmer_size - k - 1]; }
+				case 'G': { hash_full_rev += (2*(kmer_size - k - 1))); }
 				break;
 				case 'T': {  }
 				break;
@@ -122,11 +125,11 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 		for(k=20; k<kmer_size; k++){
 			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
 			switch(sequence[pos+k]){
-				case 'A': { hash12_rev += pow4[kmer_size - k - 1] * 3; }
+				case 'A': { hash12_rev += (2*(kmer_size - k - 1))) * 3; }
 				break;
-				case 'C': { hash12_rev += pow4[kmer_size - k - 1] * 2; }
+				case 'C': { hash12_rev += (2*(kmer_size - k - 1))) * 2; }
 				break;
-				case 'G': { hash12_rev += pow4[kmer_size - k - 1]; }
+				case 'G': { hash12_rev += (2*(kmer_size - k - 1))); }
 				break;
 				case 'T': {  }
 				break;

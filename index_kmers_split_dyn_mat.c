@@ -45,7 +45,7 @@ int main(int argc, char ** argv)
     char device_info[BUFFER_SIZE]; device_info[0] = '\0';
     cl_bool device_available;
     cl_ulong device_RAM, global_device_RAM;
-    size_t work_group_size[3], work_group_size_global;
+    size_t work_group_size[3], work_group_size_local;
     cl_int ret;
     if(CL_SUCCESS != (ret = clGetPlatformIDs(1, &platform_id, &ret_num_platforms))){ fprintf(stderr, "Failed to get platforms\n"); exit(-1); }
     fprintf(stdout, "Detected %d platform(s)\n", ret_num_platforms);
@@ -75,8 +75,8 @@ int main(int argc, char ** argv)
         fprintf(stdout, "\t\tLocal mem    : %"PRIu64" (%"PRIu64" KB)\n", (uint64_t) device_RAM, (uint64_t) device_RAM / (1024));
         if(CL_SUCCESS != (ret = clGetDeviceInfo(devices[i], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &compute_units, NULL))){ fprintf(stderr, "Failed to get device local memory %d\n", i); exit(-1); }
         fprintf(stdout, "\t\tCompute units: %"PRIu64"\n", (uint64_t) compute_units);
-        if(CL_SUCCESS != (ret = clGetDeviceInfo(devices[i], CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), &work_group_size_global, NULL))){ fprintf(stderr, "Failed to get device global work items size %d\n", i); exit(-1); }
-        fprintf(stdout, "\t\tMax work group size: %zu\n", work_group_size_global);
+        if(CL_SUCCESS != (ret = clGetDeviceInfo(devices[i], CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), &work_group_size_local, NULL))){ fprintf(stderr, "Failed to get device global work items size %d\n", i); exit(-1); }
+        fprintf(stdout, "\t\tMax work group size: %zu\n", work_group_size_local);
         if(CL_SUCCESS != (ret = clGetDeviceInfo(devices[i], CL_DEVICE_MAX_WORK_ITEM_SIZES, 3*sizeof(size_t), &work_group_size, NULL))){ fprintf(stderr, "Failed to get device work items size %d\n", i); exit(-1); }
         fprintf(stdout, "\t\tWork size items: (%zu, %zu, %zu)\n", work_group_size[0], work_group_size[1], work_group_size[2]);
     }
@@ -166,7 +166,7 @@ int main(int argc, char ** argv)
     if(ret != CL_SUCCESS){ fprintf(stderr, "Error creating kernel (1): %d\n", ret); exit(-1); }
 
     // Set working size
-    size_t local_item_size = CORES_PER_COMPUTE_UNIT * 8; // Number of work items in a work group
+    size_t local_item_size = work_group_size_local; // As largest as possible while work items is high
     size_t global_item_size;
 
     // Read the input query in chunks
@@ -201,7 +201,7 @@ int main(int argc, char ** argv)
         
         global_item_size = global_item_size - (global_item_size % local_item_size); // Make it evenly divisable
 
-        fprintf(stdout, "[INFO] Work items: %"PRIu64". Work groups: %"PRIu64". Total K-mers to be computed %"PRIu64"\n", (uint64_t) global_item_size, (uint64_t)(global_item_size/local_item_size), global_item_size * kmers_per_work_item);
+        fprintf(stdout, "[INFO] Work items: %"PRIu64". Work groups: %"PRIu64". Work group size: %"PRIu64". Total K-mers to be computed %"PRIu64"\n", (uint64_t) global_item_size, (uint64_t)(global_item_size/local_item_size), work_group_size_local, global_item_size * kmers_per_work_item);
 
         // Load parameters
         Parameters params = {z_value, kmer_size, items_read, (ulong) global_item_size, (ulong) kmers_per_work_item, query_len_bytes - items_read};    

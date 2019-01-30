@@ -12,6 +12,11 @@ if [ $# != 6 ]; then
 	exit -1
 fi
 
+filename=$(basename -- "$QUERY")
+extensionA="${filename##*.}"
+
+filename=$(basename -- "$REF")
+extensionB="${filename##*.}"
 
 indexA=$(basename "$QUERY")
 indexB=$(basename "$REF")
@@ -24,19 +29,24 @@ PATHY=$(dirname "${REF}")
 SEQNAMEX="${indexA%.*}"
 SEQNAMEY="${indexB%.*}"
 
-if [ ! -f ${PATHX}/${SEQNAMEX}.fix.fasta ]; then
+if [ ! -f ${PATHX}/${SEQNAMEX}.${extensionA}.fix ]; then
 
 	$BINDIR/pre-process.sh $QUERY
 fi
 
-if [ ! -f ${PATHY}/${SEQNAMEY}.fix.fasta ]; then
+if [ ! -f ${PATHY}/${SEQNAMEY}.${extensionB}.fix ]; then
 
 	$BINDIR/pre-process.sh $REF
 fi
 
-$BINDIR/index_kmers_split_dyn_mat -kwi 100 -query ${PATHX}/${SEQNAMEX}.fix.fasta -ref ${PATHY}/${SEQNAMEY}.fix.fasta -dev $DEV -diff $DIFF -olap $OVERLAP -dim $DIM
+$BINDIR/index_kmers_split_dyn_mat -kwi 100 -query ${PATHX}/${SEQNAMEX}.${extensionA}.fix -ref ${PATHY}/${SEQNAMEY}.${extensionB}.fix -dev $DEV -diff $DIFF -olap $OVERLAP -dim $DIM
 
-Rscript --vanilla $BINDIR/plot_and_score.R ${SEQNAMEX}.fix.fasta-${SEQNAMEY}.fix.fasta.mat $DIM
+# Remove the fix portion
+mv ${SEQNAMEX}.${extensionA}.fix-${SEQNAMEY}.${extensionB}.fix.mat ${SEQNAMEX}.${extensionA}-${SEQNAMEY}.${extensionB}.mat
+
+(Rscript --vanilla $BINDIR/plot_and_score.R ${SEQNAMEX}.${extensionA}-${SEQNAMEY}.${extensionB}.mat $DIM) &> ${SEQNAMEX}.${extensionA}-${SEQNAMEY}.${extensionB}.scr.txt
+
+# (Rscript $BINDIR/compute_score.R $FILE1-$FILE2.mat $DIM) &> $FILE1-$FILE2.scr.txt
 
 #rm ${PATHX}/${SEQNAMEX}.fix.fasta
 #rm ${PATHY}/${SEQNAMEY}.fix.fasta

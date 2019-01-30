@@ -9,8 +9,11 @@ fi
 
 SEQ=$1
 SEQNAME="${SEQ%.*}"
+filename=$(basename -- "$SEQ")
+extension="${filename##*.}"
+
 echo "Transforming $SEQ"
-grep -v ">" $SEQ | tr '[:lower:]' '[:upper:]' | tr -d '\n' > $SEQNAME.fix.fasta
+grep -v ">" $SEQ | tr '[:lower:]' '[:upper:]' | tr -d '\n' > $SEQNAME.${extension}.fix
 echo "Transformation completed"
 
 

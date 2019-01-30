@@ -418,6 +418,11 @@ int main(int argc, char ** argv)
     double pixel_size_ref = (double) DIMENSION / (double) ref_len_bytes;
     double i_r_fix = MAX(1.0, kmer_size * pixel_size_query);
     double j_r_fix = MAX(1.0, kmer_size * pixel_size_ref);
+
+    // Output sequence lengths
+    fprintf(out, "%"PRIu64"\n", query_len_bytes);
+    fprintf(out, "%"PRIu64"\n", ref_len_bytes);
+
     for(idx=0; idx<hash_table_size; idx++){
         if(h[idx].repeat == 2 && h[idx].pos_in_y < 0xFFFFFFFFFFFFFFFF && h[idx].pos_in_x > 0){
             // Plot it  

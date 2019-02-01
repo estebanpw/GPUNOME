@@ -414,8 +414,8 @@ int main(int argc, char ** argv)
     ulong idx;
     uint64_t ** representation = (uint64_t **) calloc(DIMENSION, sizeof(uint64_t *));
     //unsigned char ** m_in = (unsigned char **) calloc(DIMENSION, sizeof(unsigned char *));
-    unsigned char * m_in = (unsigned char *) calloc(DIMENSION*DIMENSION, sizeof(unsigned char));
-    unsigned char * m_out = (unsigned char *) calloc(DIMENSION*DIMENSION, sizeof(unsigned char ));
+    int * m_in = (int *) calloc(DIMENSION*DIMENSION, sizeof(int));
+    int * m_out = (int *) calloc(DIMENSION*DIMENSION, sizeof(int));
     if(representation == NULL || m_in == NULL || m_out == NULL){ fprintf(stderr, "Could not allocate representation"); exit(-1); }
     for(idx=0; idx<DIMENSION; idx++){
         representation[idx] = (uint64_t *) calloc(DIMENSION, sizeof(uint64_t));
@@ -486,7 +486,7 @@ int main(int argc, char ** argv)
 
     }
     fprintf(stdout, "[INFO] Found %"PRIu64" unique hits for z = %"PRIu64".\n", unique_diffuse, z_value);
-    fprintf(stdout, "; %"PRIu64" %"PRIu64"\n", z_value, unique_diffuse);
+    //fprintf(stdout, "; %"PRIu64" %"PRIu64"\n", z_value, unique_diffuse);
 
     
 
@@ -532,19 +532,19 @@ int main(int argc, char ** argv)
 
 
     // Create matrix memory object
-    cl_mem m_in_mem = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, (DIMENSION)*(DIMENSION) * sizeof(unsigned char), m_in, &ret);
+    cl_mem m_in_mem = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, (DIMENSION)*(DIMENSION) * sizeof(int), m_in, &ret);
     if(ret != CL_SUCCESS){ fprintf(stderr, "Could not allocate memory for image matrix. Error: %d\n", ret); exit(-1); }
 
     // Allocate output matrix
-    cl_mem m_out_mem = clCreateBuffer(context, CL_MEM_READ_WRITE, (DIMENSION)*(DIMENSION) * sizeof(unsigned char), NULL, &ret);
+    cl_mem m_out_mem = clCreateBuffer(context, CL_MEM_READ_WRITE, (DIMENSION)*(DIMENSION) * sizeof(int), NULL, &ret);
     if(ret != CL_SUCCESS){ fprintf(stderr, "Could not allocate memory for output image matrix in device. Error: %d\n", ret); exit(-1); }
 
     cl_mem m_dimension = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(ulong), &DIMENSION, &ret);
     if(ret != CL_SUCCESS){ fprintf(stderr, "Could not allocate memory for resolution value in device. Error: %d\n", ret); exit(-1); }
 
     // Initialize output matrix
-    unsigned char empty_char = 0;
-    ret = clEnqueueFillBuffer(command_queue, m_out_mem, (const void *) &empty_char, sizeof(unsigned char), 0, (DIMENSION)*(DIMENSION) * sizeof(unsigned char), 0, NULL, NULL); 
+    int empty_int = 0;
+    ret = clEnqueueFillBuffer(command_queue, m_out_mem, (const void *) &empty_int, sizeof(int), 0, (DIMENSION)*(DIMENSION) * sizeof(int), 0, NULL, NULL); 
     if(ret != CL_SUCCESS){ fprintf(stderr, "Could not initialize output matrix. Error: %d\n", ret); exit(-1); }
 
     // Read new kernel
@@ -612,14 +612,14 @@ int main(int argc, char ** argv)
     ret = clFinish(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Command execution went wrong (2): %d\n", ret); exit(-1); }
 
     // Read resulting output matrix
-    ret = clEnqueueReadBuffer(command_queue, m_out_mem, CL_TRUE, 0, (DIMENSION)*(DIMENSION) * sizeof(unsigned char), m_out, 0, NULL, NULL);
+    ret = clEnqueueReadBuffer(command_queue, m_out_mem, CL_TRUE, 0, (DIMENSION)*(DIMENSION) * sizeof(int), m_out, 0, NULL, NULL);
     if(ret != CL_SUCCESS){ fprintf(stderr, "Could not read output matrix from buffer: %d\n", ret); exit(-1); }
 
 
     // Write resulting matrix
     for(i=0; i<DIMENSION; i++){
         for(j=0; j<DIMENSION; j++){
-            fprintf(out, "%u ", m_out[i*DIMENSION+j]);
+            fprintf(out, "%u ", (m_out[i*DIMENSION+j] > 0) ? (1) : (0) );
         }
         fprintf(out, "\n");
     }

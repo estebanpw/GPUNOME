@@ -9,7 +9,7 @@
 #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
 
 // Reduce this to 1D
-__kernel void kernel_filter(__global const unsigned char * m_in, __global unsigned char * m_out, __global ulong * dimension) {
+__kernel void kernel_filter(__global const int * m_in, __global int * m_out, __global ulong * dimension) {
  
     // Get the index of the current element to be processed
 	int x_id = (int) get_global_id(0);
@@ -32,11 +32,14 @@ __kernel void kernel_filter(__global const unsigned char * m_in, __global unsign
 		if(sum >= DIAG_LEN){
 			ulong k;
 			for(k=0; k<DIAG_EXTEND; k++){
-				m_out[(x_id+k)*DIMENSION + y_id+k] = 1;
-				m_out[(x_id-k)*DIMENSION + y_id-k] = 1;
+				//m_out[(x_id+k)*DIMENSION + y_id+k] = 1;
+				atomic_inc(&m_out[(x_id+k)*DIMENSION + y_id+k]);
+				//m_out[(x_id-k)*DIMENSION + y_id-k] = 1;
+				atomic_inc(&m_out[(x_id-k)*DIMENSION + y_id-k]);
 			}
 		}else{
-			m_out[(x_id)*DIMENSION + y_id] = 0;
+			//m_out[(x_id)*DIMENSION + y_id] = 0;
+			//atomic_dec(&m_out[(x_id)*DIMENSION + y_id]);
 		}
 	}
 
@@ -56,11 +59,14 @@ __kernel void kernel_filter(__global const unsigned char * m_in, __global unsign
 		if(sum >= DIAG_LEN){
 			ulong k;
 			for(k=0; k<DIAG_EXTEND; k++){
-				m_out[(x_id-k)*DIMENSION + y_id+k] = 1;
-				m_out[(x_id+k)*DIMENSION + y_id-k] = 1;
+				//m_out[(x_id-k)*DIMENSION + y_id+k] = 1;
+				atomic_inc(&m_out[(x_id-k)*DIMENSION + y_id+k]);
+				//m_out[(x_id+k)*DIMENSION + y_id-k] = 1;
+				atomic_inc(&m_out[(x_id+k)*DIMENSION + y_id-k]);
 			}
 		}else{
-			m_out[(x_id)*DIMENSION + y_id] = 0; 
+			//m_out[(x_id)*DIMENSION + y_id] = 0;
+			//atomic_dec(&m_out[(x_id)*DIMENSION + y_id]); 
 		}
 	}
 
@@ -89,7 +95,8 @@ __kernel void kernel_filter(__global const unsigned char * m_in, __global unsign
 		sum += (ulong) m_in[(max_i)*DIMENSION + y_id];
 		sum += (ulong) m_in[(max_i)*DIMENSION + max_y];
 
-		if(sum > NOISE) m_out[(x_id)*DIMENSION + y_id] = 1;
+		//if(sum > NOISE) m_out[(x_id)*DIMENSION + y_id] = 1;
+		if(sum > NOISE) atomic_inc(&m_out[(x_id)*DIMENSION + y_id]);
 	}
 
 	

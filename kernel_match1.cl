@@ -3,6 +3,8 @@
 #define FIXED_K 12
 #define ZVAL 1
 
+#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
+
 typedef struct parameters{
     ulong z_value;
     ulong kmer_size;
@@ -127,13 +129,15 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 			// Index with prefix
 			if(hash_table[hash12].key == hash_full){
 				hash_table[hash12].pos_in_y = pos + offset;
-				++(hash_table[hash12].repeat);
+				//++(hash_table[hash12].repeat);
+				atom_inc(&hash_table[hash12].repeat);
 			}
 
 			// And reverse
 			if(hash_table[hash12_rev].key == hash_full_rev){
 				hash_table[hash12_rev].pos_in_y = pos + offset;
-				++(hash_table[hash12_rev].repeat);
+				//++(hash_table[hash12_rev].repeat);
+				atom_inc(&hash_table[hash12_rev].repeat);
 			}
 		}
 

@@ -1,5 +1,7 @@
 #define FIXED_K 12
 
+#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
+
 typedef struct parameters{
     ulong z_value;
     ulong kmer_size;
@@ -100,9 +102,25 @@ __kernel void kernel_index(__global Hash_item * hash_table, __global Parameters 
 
 		if(bad == 0){
 			// Index with prefix
+			
+
 			hash_table[hash12].key = hash_full;
+			// This atomic one is not needed, since if several access, then it is a repeat (which has atomic),
+			// Otherwise it is good still because only 1 core accessed
+			//atom_xchg(&hash_table[hash12].key, hash_full);
+
 			hash_table[hash12].pos_in_x = pos + offset;
-			++(hash_table[hash12].repeat);
+			// This atomic one is not needed, since if several access, then it is a repeat (which has atomic),
+			// Otherwise it is good still because only 1 core accessed
+			//ulong result = pos + offset;
+			//atom_add(&hash_table[hash12].pos_in_x, result);
+
+			//++(hash_table[hash12].repeat);
+			// This one needs atomic so that it really shows whether its a repeat or not
+			atom_inc(&hash_table[hash12].repeat);
+			
+			
+			
 			//hash_table[hash12].bitmask[pos % 8] = (unsigned char) 1;
 		}	
 	}

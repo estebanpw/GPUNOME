@@ -6,6 +6,8 @@
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
+#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
+
 // Reduce this to 1D
 __kernel void kernel_filter(__global const unsigned char * m_in, __global unsigned char * m_out, __global ulong * dimension) {
  
@@ -58,7 +60,7 @@ __kernel void kernel_filter(__global const unsigned char * m_in, __global unsign
 				m_out[(x_id+k)*DIMENSION + y_id-k] = 1;
 			}
 		}else{
-			m_out[(x_id)*DIMENSION + y_id] = 0;
+			m_out[(x_id)*DIMENSION + y_id] = 0; 
 		}
 	}
 
@@ -67,7 +69,7 @@ __kernel void kernel_filter(__global const unsigned char * m_in, __global unsign
 	
 	sum = 0;
 
-	
+	// Concurrent-problems free
 	if(x_id >= 1 && x_id <= DIMENSION-1 && y_id >= 1 && y_id <= DIMENSION-1){
 		
 		int min_i = MAX(1, x_id - 1);

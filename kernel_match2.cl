@@ -3,6 +3,8 @@
 #define FIXED_K 12
 #define ZVAL 4
 
+#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
+
 typedef struct parameters{
     ulong z_value;
     ulong kmer_size;
@@ -145,20 +147,28 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 
 
 		if(bad == 0){
+
 			// Index with prefix
 			if(hash_table[hash12].key == hash_full){
 				hash_table[hash12].pos_in_y = pos + offset;
-				++(hash_table[hash12].repeat);
+				//++(hash_table[hash12].repeat);
+				// Only the increment is needed as atomic:
+				// If there is only one thread accessing -> all good
+				// If there are more, it will show as repeat and it doesnt matter if position is corrupted
+				atom_inc(&hash_table[hash12].repeat);
 			}
 
 			// And reverse
 			if(hash_table[hash12_rev].key == hash_full_rev){
 				hash_table[hash12_rev].pos_in_y = pos + offset;
-				++(hash_table[hash12_rev].repeat);
+				//++(hash_table[hash12_rev].repeat);
+				// Only the increment is needed as atomic:
+				// If there is only one thread accessing -> all good
+				// If there are more, it will show as repeat and it doesnt matter if position is corrupted
+				atom_inc(&hash_table[hash12_rev].repeat);
 			}
 		}
 
-		
 		
 		//hash_table[hash12].bitmask[pos % 8] = (unsigned char) 1;
 		

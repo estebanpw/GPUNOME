@@ -17,7 +17,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, ulong * z_value, ulong * kmer_size, FILE ** ref, FILE ** out, ulong * kmers_per_work_item, ulong * overlapping, ulong * DIMENSION);
-void print_hash_table(Hash_item * h);
+void print_hash_table(Hash_item * h, FILE * out);
 char * get_dirname(char * path);
 char * get_basename(char * path);
 
@@ -41,6 +41,7 @@ int main(int argc, char ** argv)
     cl_device_id * devices = NULL;
     cl_uint ret_num_devices;
     cl_uint ret_num_platforms;
+    cl_uint ret_address_bits;
     cl_uint compute_units;
     char device_info[BUFFER_SIZE]; device_info[0] = '\0';
     cl_bool device_available;
@@ -79,6 +80,8 @@ int main(int argc, char ** argv)
         fprintf(stdout, "\t\tMax work group size: %zu\n", work_group_size_local);
         if(CL_SUCCESS != (ret = clGetDeviceInfo(devices[i], CL_DEVICE_MAX_WORK_ITEM_SIZES, 3*sizeof(size_t), &work_group_size, NULL))){ fprintf(stderr, "Failed to get device work items size %d\n", i); exit(-1); }
         fprintf(stdout, "\t\tWork size items: (%zu, %zu, %zu)\n", work_group_size[0], work_group_size[1], work_group_size[2]);
+        if(CL_SUCCESS != (ret = clGetDeviceInfo(devices[i], CL_DEVICE_ADDRESS_BITS, sizeof(cl_uint), &ret_address_bits, NULL))) fprintf(stderr, "Failed to get device work items size %d", i);
+        fprintf(stdout, "\t\tAddress space in bits: %d\n", ret_address_bits);
     }
 
     fprintf(stdout, "[INFO] Using device %d\n", selected_device);
@@ -357,8 +360,8 @@ int main(int argc, char ** argv)
 
 
         // Wait for kernel to finish
-        ret = clFlush(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad flush of event: %d\n", ret); exit(-1); }
-        ret = clFinish(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad finish of event: %d\n", ret); exit(-1); }
+        ret = clFlush(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad flush of event (flush): %d\n", ret); exit(-1); }
+        ret = clFinish(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad finish of event (finish): %d\n", ret); exit(-1); }
 
         // Deallocation & cleanup for next round
 
@@ -399,7 +402,14 @@ int main(int argc, char ** argv)
     // Scan hits table
     fprintf(stdout, "[INFO] Scanning hits table\n");
 
-    //print_hash_table(h);
+    // Print hash table to verify it
+    //FILE * right_here = fopen("tablehash", "wt");
+    //FILE * right_here = fopen("tablehash", "wb");
+    //FILE * right_here = fopen("tablehash", "rb");
+    //print_hash_table(h, right_here);
+    //fwrite(h, sizeof(hash_item), pow(4, FIXED_K), right_here);
+    //fread(h, sizeof(hash_item), hash_table_size, right_here);
+    //fclose(right_here);
 
     ulong idx;
     uint64_t ** representation = (uint64_t **) calloc(DIMENSION, sizeof(uint64_t *));
@@ -478,6 +488,8 @@ int main(int argc, char ** argv)
     fprintf(stdout, "[INFO] Found %"PRIu64" unique hits for z = %"PRIu64".\n", unique_diffuse, z_value);
     fprintf(stdout, "; %"PRIu64" %"PRIu64"\n", z_value, unique_diffuse);
 
+    
+
 
     // Repeat for the other coordinate
     value = representation[0][0], pos = 0;
@@ -506,6 +518,17 @@ int main(int argc, char ** argv)
     }
 
     // Apply filtering kernel on m_in
+
+    // This was to verify that there are no undesired executions resulting from concurrency
+    //FILE * right_here = fopen("matrix", "wt");
+    //FILE * right_here = fopen("matrix", "rb");
+    //print_hash_table(h, right_here);
+    //fwrite(h, sizeof(hash_item), pow(4, FIXED_K), right_here);
+    //ulong r1;
+    //for(r1=0; r1<DIMENSION*DIMENSION; r1++){
+    //    fprintf(right_here, "%d\n", m_in[r1]);
+    //}
+    //fclose(right_here);
 
 
     // Create matrix memory object
@@ -715,22 +738,21 @@ void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, u
     if(p2 != NULL) free(p2);   
 }
 
-
-void print_hash_table(Hash_item * h){
+void print_hash_table(Hash_item * h, FILE * out){
     ulong i, sum = 0;
     for(i=0; i<pow(4, FIXED_K); i++){
         sum += h[i].repeat;
     }
     fprintf(stdout, "Sum is %lu\n", sum);
     for(i=0; i<pow(4, FIXED_K); i++){
-        if(1 || (h[i].repeat == 2 && h[i].pos_in_x > 0 && h[i].pos_in_y < 0xFFFFFFFFFFFFFFFF )){
+        if(1 || (h[i].repeat == 2 && h[i].pos_in_x > 0 && h[i].pos_in_y < 0xFFFFFFFFFFFFFFFF)){
             /*
             fprintf(stdout, "#%lu: [b]%u%u%u%u%u%u%u%u [R]%lu [K]%lu [PX]%lu [PY]%lu\n", i, h[i].bitmask[0], 
             h[i].bitmask[1], h[i].bitmask[2], h[i].bitmask[3], h[i].bitmask[4], h[i].bitmask[5], 
             h[i].bitmask[6], h[i].bitmask[7], h[i].repeat, h[i].key, h[i].pos_in_x, h[i].pos_in_y);
             */
-            fprintf(stdout, "#%lu: [R]%lu [K]%lu [PX]%lu [PY]%lu\n", i, h[i].repeat, h[i].key, h[i].pos_in_x, h[i].pos_in_y);
-            getchar();
+            fprintf(out, "#%lu: [R]%lu [K]%lu [PX]%lu [PY]%lu\n", i, h[i].repeat, h[i].key, h[i].pos_in_x, h[i].pos_in_y);
+            //getchar();
         }
         
         //if(h[i].key != 0) fprintf(stdout, "#%lu: [R]%lu [K]%lu [P]%lu\n", i, h[i].repeat, h[i].key, h[i].pos);

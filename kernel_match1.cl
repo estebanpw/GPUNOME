@@ -33,6 +33,8 @@ __constant ulong pow4[33]={1L, 4L, 16L, 64L, 256L, 1024L, 4096L, 16384L, 65536L,
 
 __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters * params, __global const char * sequence) {
  
+	
+
     // Get the index of the current element to be processed
 	ulong global_id = get_global_id(0);
 	//ulong local_id = get_local_id(0);
@@ -45,6 +47,8 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 	// Debugging
 	//hash_table[0].repeat = i;
 	//hash_table[1].repeat = local_size;
+
+	
 	
 	// Until reaching end of sequence
 	for(j=0; j<kmers_in_work_item; j++){
@@ -69,13 +73,32 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
 			switch(sequence[pos+k]){
 				//case 'A': { hash_full_rev += pow4[kmer_size-k-1] * 3; }
-				case 'A': { hash_full_rev += (2*(kmer_size - k - 1))) * 3; }
+				case 'A': { /* hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 3; */ }
 				break;
-				case 'C': { hash12 += pow4[k]; hash_full_rev += (2*(kmer_size - k - 1))) * 2; }
+				case 'C': { hash12 += (((ulong) 1) << (2*k)); /* hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 2; */ }
 				break;
-				case 'G': { hash12 += pow4[k] * 2; hash_full_rev += (2*(kmer_size - k - 1))); }
+				case 'G': { hash12 += (((ulong) 1) << (2*k)) * 2; /* hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))); */ }
 				break;
-				case 'T': { hash12 += pow4[k] * 3; }
+				case 'T': { hash12 += (((ulong) 1) << (2*k)) * 3; }
+				break;
+				case '\n': { }
+				break;
+				default: { bad = 1; }
+				break;
+			}
+		}
+
+		for(k=0; k<FIXED_K; k++){
+			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
+			switch(sequence[pos+k]){
+				//case 'A': { hash_full_rev += pow4[kmer_size-k-1] * 3; }
+				case 'A': { hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 3; }
+				break;
+				case 'C': { /* hash12 += (((ulong) 1) << (2*k)); */ hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 2; }
+				break;
+				case 'G': { /* hash12 += (((ulong) 1) << (2*k)) * 2; */ hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))); }
+				break;
+				case 'T': { /* hash12 += (((ulong) 1) << (2*k)) * 3; */ }
 				break;
 				case '\n': { }
 				break;
@@ -86,16 +109,40 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 
 		hash_full = hash12;
 
+		
+
 		for(k=FIXED_K; k<20; k++){
 			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
 			switch(sequence[pos+k]){
-				case 'A': { hash_full_rev += (2*(kmer_size - k - 1))) * 3; }
+				case 'A': { /* hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 3; */ }
 				break;
-				case 'C': { hash_full += pow4[k]; hash_full_rev += (2*(kmer_size - k - 1))) * 2; }
+				case 'C': { hash_full += (((ulong) 1) << (2*k)); /* hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 2; */ }
 				break;
-				case 'G': { hash_full += pow4[k] * 2; hash_full_rev += (2*(kmer_size - k - 1))); }
+				case 'G': { hash_full += (((ulong) 1) << (2*k)) * 2; /* hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))); */ }
 				break;
-				case 'T': { hash_full += pow4[k] * 3; }
+				case 'T': { hash_full += (((ulong) 1) << (2*k)) * 3; }
+				break;
+				case '\n': { }
+				break;
+				default: { bad = 1; }
+				break;
+			}
+		}
+
+		// And reverse now
+		// Notice that before there were only 3 for's
+		// But it seems when opencl compiles this it becomes to complex and throws a CL_OUT_OF_RESOURCES 
+
+		for(k=FIXED_K; k<20; k++){
+			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
+			switch(sequence[pos+k]){
+				case 'A': { hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 3; }
+				break;
+				case 'C': { /* hash_full += (((ulong) 1) << (2*k)); */ hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 2; }
+				break;
+				case 'G': { /* hash_full += (((ulong) 1) << (2*k)) * 2; */ hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))); }
+				break;
+				case 'T': { /* hash_full += (((ulong) 1) << (2*k)) * 3; */ }
 				break;
 				case '\n': { }
 				break;
@@ -104,16 +151,17 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 			}
 		}
 		
+		
 		for(k=20; k<kmer_size; k++){
 			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
 			switch(sequence[pos+k]){
-				case 'A': { hash12_rev += (2*(kmer_size - k - 1))) * 3; }
+				case 'A': { /*hash12_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 3; */ }
 				break;
-				case 'C': { hash_full += pow4[k]; hash12_rev += (2*(kmer_size - k - 1))) * 2; }
+				case 'C': { hash_full += (((ulong) 1) << (2*k)); /* hash12_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 2; */ }
 				break;
-				case 'G': { hash_full += pow4[k] * 2; hash12_rev += (2*(kmer_size - k - 1))); }
+				case 'G': { hash_full += (((ulong) 1) << (2*k)) * 2; /* hash12_rev += (((ulong) 1) << (2*(kmer_size - k - 1))); */ }
 				break;
-				case 'T': { hash_full += pow4[k] * 3; }
+				case 'T': { hash_full += (((ulong) 1) << (2*k)) * 3; }
 				break;
 				case '\n': { }
 				break;
@@ -121,6 +169,25 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 				break;
 			}
 		}
+
+		for(k=20; k<kmer_size; k++){
+			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
+			switch(sequence[pos+k]){
+				case 'A': { hash12_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 3; }
+				break;
+				case 'C': { /* hash_full += (((ulong) 1) << (2*k)); */ hash12_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 2; }
+				break;
+				case 'G': { /* hash_full += (((ulong) 1) << (2*k)) * 2; */ hash12_rev += (((ulong) 1) << (2*(kmer_size - k - 1))); }
+				break;
+				case 'T': { /* hash_full += (((ulong) 1) << (2*k)) * 3; */ }
+				break;
+				case '\n': { }
+				break;
+				default: { bad = 1; }
+				break;
+			}
+		}
+		
 
 		hash_full_rev += hash12_rev;
 
@@ -140,11 +207,13 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 				atom_inc(&hash_table[hash12_rev].repeat);
 			}
 		}
-
+		
 		
 		
 		//hash_table[hash12].bitmask[pos % 8] = (unsigned char) 1;
 		
 	}
+
+	
 
 }

@@ -263,7 +263,6 @@ int main(int argc, char ** argv)
     // Match hits
     ////////////////////////////////////////////////////////////////////////////////
 
-
     // Allocate memory in host
     char * ref_mem_host = (char *) malloc(ram_to_be_used * sizeof(char));
     if(ref_mem_host == NULL){ fprintf(stderr, "Could not allocate host memory for reference sequence\n"); exit(-1); }

@@ -6,9 +6,11 @@ DEV=$3
 DIFF=$4
 OVERLAP=$5
 DIM=$6
+KWI=$7
+WKS=$8
 
-if [ $# != 6 ]; then
-	echo "***ERROR*** Use: $0 query ref device diff overlap dimension"
+if [ $# != 8 ]; then
+	echo "***ERROR*** Use: $0 query ref device diff overlap dimension kwi wks"
 	exit -1
 fi
 
@@ -39,7 +41,7 @@ if [ ! -f ${PATHY}/${SEQNAMEY}.${extensionB}.fix ]; then
 	$BINDIR/pre-process.sh $REF
 fi
 
-$BINDIR/index_kmers_split_dyn_mat -kwi 100 -query ${PATHX}/${SEQNAMEX}.${extensionA}.fix -ref ${PATHY}/${SEQNAMEY}.${extensionB}.fix -dev $DEV -diff $DIFF -olap $OVERLAP -dim $DIM
+$BINDIR/index_kmers_split_dyn_mat -kwi $KWI -wks $WKS -query ${PATHX}/${SEQNAMEX}.${extensionA}.fix -ref ${PATHY}/${SEQNAMEY}.${extensionB}.fix -dev $DEV -diff $DIFF -olap $OVERLAP -dim $DIM
 
 # Remove the fix portion
 mv ${SEQNAMEX}.${extensionA}.fix-${SEQNAMEY}.${extensionB}.fix.mat ${SEQNAMEX}.${extensionA}-${SEQNAMEY}.${extensionB}.mat

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
+#include <time.h>
 #include <math.h>
 #include "structs.h"
 
@@ -16,7 +17,7 @@
 // Program main
 ////////////////////////////////////////////////////////////////////////////////
 
-void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, ulong * z_value, ulong * kmer_size, FILE ** ref, FILE ** out, ulong * kmers_per_work_item, ulong * overlapping, ulong * DIMENSION);
+void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, ulong * z_value, ulong * kmer_size, FILE ** ref, FILE ** out, ulong * kmers_per_work_item, ulong * overlapping, ulong * DIMENSION, size_t * preferred_work_group_size);
 void print_hash_table(Hash_item * h, FILE * out);
 char * get_dirname(char * path);
 char * get_basename(char * path);
@@ -28,8 +29,9 @@ int main(int argc, char ** argv)
     ulong kmers_per_work_item = 32;
     ulong overlapping = 32;
     ulong DIMENSION = 1000;
+    size_t preferred_work_group_size = 0;
     FILE * query = NULL, * ref = NULL, * out = NULL;
-    init_args(argc, argv, &query, &selected_device, &z_value, &kmer_size, &ref, &out, &kmers_per_work_item, &overlapping, &DIMENSION);
+    init_args(argc, argv, &query, &selected_device, &z_value, &kmer_size, &ref, &out, &kmers_per_work_item, &overlapping, &DIMENSION, &preferred_work_group_size);
 
     fprintf(stdout, "Building matrix with resolution %"PRIu64"\n", DIMENSION);
     char * path_kernels = get_dirname(argv[0]);
@@ -169,8 +171,16 @@ int main(int argc, char ** argv)
     if(ret != CL_SUCCESS){ fprintf(stderr, "Error creating kernel (1): %d\n", ret); exit(-1); }
 
     // Set working size
-    size_t local_item_size = work_group_size_local; // As largest as possible while work items is high
+    size_t local_item_size;
+    if(preferred_work_group_size == 0){
+        local_item_size = work_group_size_local; // As large as possible while work items is high
+    }else{
+        local_item_size = preferred_work_group_size; // User defined
+    }
+    
     size_t global_item_size;
+
+    clock_t begin = clock();
 
     // Read the input query in chunks
     int split = 0;
@@ -204,7 +214,7 @@ int main(int argc, char ** argv)
         
         global_item_size = global_item_size - (global_item_size % local_item_size); // Make it evenly divisable
 
-        fprintf(stdout, "[INFO] Work items: %"PRIu64". Work groups: %"PRIu64". Work group size: %"PRIu64". Total K-mers to be computed %"PRIu64"\n", (uint64_t) global_item_size, (uint64_t)(global_item_size/local_item_size), work_group_size_local, global_item_size * kmers_per_work_item);
+        fprintf(stdout, "[INFO] Work items: %"PRIu64". Work groups: %"PRIu64". Work group size: %"PRIu64". Total K-mers to be computed %"PRIu64"\n", (uint64_t) global_item_size, (uint64_t)(global_item_size/local_item_size), local_item_size, global_item_size * kmers_per_work_item);
 
         // Load parameters
         Parameters params = {z_value, kmer_size, items_read, (ulong) global_item_size, (ulong) kmers_per_work_item, query_len_bytes - items_read};    
@@ -246,6 +256,9 @@ int main(int argc, char ** argv)
     ret = clFinish(command_queue); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad finish of event: %d\n", ret); exit(-1); }
     ret = clReleaseKernel(kernel); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (3)\n"); exit(-1); }
     ret = clReleaseProgram(program); if(ret != CL_SUCCESS){ fprintf(stderr, "Bad free (4)\n"); exit(-1); }
+
+
+    fprintf(stdout, "[TIME] Indexing: t=%e\n", (double) (clock()-begin) / CLOCKS_PER_SEC);
 
     fprintf(stdout, "[INFO] Completed processing query splits\n");
     
@@ -312,6 +325,8 @@ int main(int argc, char ** argv)
     // Create the OpenCL kernel
     kernel = clCreateKernel(program, "kernel_match", &ret);
     if(ret != CL_SUCCESS){ fprintf(stderr, "Error creating kernel (2): %d\n", ret); exit(-1); }
+
+    begin = clock();
 
     // Read the reference sequence in chunks
     split = 0;
@@ -380,7 +395,7 @@ int main(int argc, char ** argv)
 
 
 
-
+    fprintf(stdout, "[TIME] Matching: t=%e\n", (double) (clock()-begin) / CLOCKS_PER_SEC);
 
 
     ////////////////////////////////////////////////////////////////////////////////
@@ -455,6 +470,8 @@ int main(int argc, char ** argv)
             }                                                     
         }
     }
+
+    begin = clock();
 
     // Find number of unique diffuse hits
     // and keep only maximums
@@ -599,6 +616,7 @@ int main(int argc, char ** argv)
 
     fprintf(stdout, "[INFO] Filtering step: Work items: %"PRIu64"x%"PRIu64". Work group size: %"PRIu64"x%"PRIu64"\n", (uint64_t) global_item_size2d[0], (uint64_t) global_item_size2d[1], (uint64_t)local_item_size2d[0], (uint64_t)local_item_size2d[1]);
 
+    begin = clock();
 
     fprintf(stdout, "[INFO] Executing the kernel\n");
     // Execute the OpenCL kernel on the lists
@@ -622,6 +640,8 @@ int main(int argc, char ** argv)
         }
         fprintf(out, "\n");
     }
+
+    fprintf(stdout, "[TIME] Filtering: t=%e\n", (double) (clock()-begin) / CLOCKS_PER_SEC);
 
     fclose(out);
 
@@ -658,7 +678,7 @@ int main(int argc, char ** argv)
 }
 
 
-void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, ulong * z_value, ulong * kmer_size, FILE ** ref, FILE ** out, ulong * kmers_per_work_item, ulong * overlapping, ulong * DIMENSION){
+void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, ulong * z_value, ulong * kmer_size, FILE ** ref, FILE ** out, ulong * kmers_per_work_item, ulong * overlapping, ulong * DIMENSION, size_t * preferred_work_group_size){
     
     int pNum = 0;
     char * p1 = NULL, * p2 = NULL;
@@ -674,7 +694,8 @@ void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, u
             fprintf(stdout, "           -kwi        [Integer: k>=1] Number of kmers per work item to be used\n");
             fprintf(stdout, "           -diff       [Integer: z>=1] Inexactness applied\n");
             fprintf(stdout, "           -olap       [Integer: 1, 16, 32] Spacing of seeds for index dictionary\n");
-	    fprintf(stdout, "		-dim	    [Integer: d>=1] (1000) Matrix resolution\n");
+	        fprintf(stdout, "	    	-dim	    [Integer: d>=1] (1000) Matrix resolution\n");
+            fprintf(stdout, "           -wks        [Integer: w>0 ] Work group size\n");
             fprintf(stdout, "           --help      Shows help for program usage\n");
             fprintf(stdout, "\n");
             exit(1);
@@ -715,6 +736,11 @@ void init_args(int argc, char ** av, FILE ** query, cl_uint * selected_device, u
         if(strcmp(av[pNum], "-kmer") == 0){
             *kmer_size = (ulong) atoi(av[pNum+1]);
             if(atoi(av[pNum+1]) <= 0) { fprintf(stderr, "Kmer size must be >0\n"); exit(-1); }
+        }
+
+        if(strcmp(av[pNum], "-wks") == 0){
+            *preferred_work_group_size = (size_t) atoi(av[pNum+1]);
+            if(atoi(av[pNum+1]) < 1) { fprintf(stderr, "Work group size must be >0\n"); exit(-1); }
         }
 
         if(strcmp(av[pNum], "-diff") == 0){

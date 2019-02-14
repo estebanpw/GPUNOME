@@ -117,13 +117,15 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 			// Index with prefix
 			if(hash_table[hash12].key == hash_full){
 				hash_table[hash12].pos_in_y = pos;
-				++(hash_table[hash12].repeat);
+				//++(hash_table[hash12].repeat);
+				atom_inc(&hash_table[hash12].repeat);
 			}
 
 			// And reverse
 			if(hash_table[hash12_rev].key == hash_full_rev){
 				hash_table[hash12_rev].pos_in_y = pos;
-				++(hash_table[hash12_rev].repeat);
+				//++(hash_table[hash12_rev].repeat);
+				atom_inc(&hash_table[hash12_rev].repeat);
 			}
 		}
 

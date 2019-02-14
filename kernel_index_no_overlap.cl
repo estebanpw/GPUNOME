@@ -96,7 +96,8 @@ __kernel void kernel_index(__global Hash_item * hash_table, __global Parameters 
 			// Index with prefix
 			hash_table[hash12].key = hash_full;
 			hash_table[hash12].pos_in_x = pos;
-			++(hash_table[hash12].repeat);
+			//++(hash_table[hash12].repeat);
+			atom_inc(&hash_table[hash12].repeat);
 			//hash_table[hash12].bitmask[pos % 8] = (unsigned char) 1;
 		}	
 		

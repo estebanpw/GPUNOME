@@ -67,132 +67,204 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 		
 
 		ulong hash12 = 0, hash12_rev = 0, hash_full = 0, hash_full_rev = 0;
+		unsigned char checker = 0, multiplier = 0, val;
 		
-		unsigned char bad = 0;
+		//unsigned char bad = 0;
 		for(k=0; k<FIXED_K; k++){
 			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
-			switch(sequence[pos+k]){
-				//case 'A': { hash_full_rev += pow4[kmer_size-k-1] * 3; }
-				case 'A': { /* hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 3; */ }
-				break;
-				case 'C': { hash12 += (((ulong) 1) << (2*k)); /* hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 2; */ }
-				break;
-				case 'G': { hash12 += (((ulong) 1) << (2*k)) * 2; /* hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))); */ }
-				break;
-				case 'T': { hash12 += (((ulong) 1) << (2*k)) * 3; }
-				break;
-				case '\n': { }
-				break;
-				default: { bad = 1; }
-				break;
-			}
+
+			val = (unsigned char) sequence[pos+k];
+			multiplier = (val & (unsigned char) 6) >> 1;
+			hash12 += (((ulong) 1) << (2*k)) * (ulong) multiplier;
+			checker = checker | (val & (unsigned char) 8);
+
+			
+			// switch(sequence[pos+k]){
+			// 	//case 'A': { hash_full_rev += pow4[kmer_size-k-1] * 3; }
+			// 	case 'A': {  }
+			// 	break;
+			// 	case 'C': { hash12 += (((ulong) 1) << (2*k));  }
+			// 	break;
+			// 	case 'G': { hash12 += (((ulong) 1) << (2*k)) * 2;  }
+			// 	break;
+			// 	case 'T': { hash12 += (((ulong) 1) << (2*k)) * 3; }
+			// 	break;
+			// 	case '\n': { }
+			// 	break;
+			// 	default: { bad = 1; }
+			// 	break;
+			// }
+			
 		}
 
 		for(k=0; k<FIXED_K; k++){
 			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
-			switch(sequence[pos+k]){
-				//case 'A': { hash_full_rev += pow4[kmer_size-k-1] * 3; }
-				case 'A': { hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 3; }
-				break;
-				case 'C': { /* hash12 += (((ulong) 1) << (2*k)); */ hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 2; }
-				break;
-				case 'G': { /* hash12 += (((ulong) 1) << (2*k)) * 2; */ hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))); }
-				break;
-				case 'T': { /* hash12 += (((ulong) 1) << (2*k)) * 3; */ }
-				break;
-				case '\n': { }
-				break;
-				default: { bad = 1; }
-				break;
-			}
+
+			val = (unsigned char) sequence[pos+k];
+			multiplier = (val & (unsigned char) 6) >> 1;
+			multiplier = ((unsigned char) 2 + multiplier) & (unsigned char) 3;
+			hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * ((ulong) multiplier);
+			checker = checker | (val & (unsigned char) 8);
+
+			
+			// switch(sequence[pos+k]){
+			// 	//case 'A': { hash_full_rev += pow4[kmer_size-k-1] * 3; }
+			// 	case 'A': { hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 3; }
+			// 	break;
+			// 	case 'C': {  hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 2; }
+			// 	break;
+			// 	case 'G': {  hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))); }
+			// 	break;
+			// 	case 'T': {  }
+			// 	break;
+			// 	case '\n': { }
+			// 	break;
+			// 	default: { bad = 1; }
+			// 	break;
+			// }
+			
 		}
 
 		hash_full = hash12;
 
 		
-
+		
 		for(k=FIXED_K; k<20; k++){
 			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
-			switch(sequence[pos+k]){
-				case 'A': { /* hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 3; */ }
-				break;
-				case 'C': { hash_full += (((ulong) 1) << (2*k)); /* hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 2; */ }
-				break;
-				case 'G': { hash_full += (((ulong) 1) << (2*k)) * 2; /* hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))); */ }
-				break;
-				case 'T': { hash_full += (((ulong) 1) << (2*k)) * 3; }
-				break;
-				case '\n': { }
-				break;
-				default: { bad = 1; }
-				break;
-			}
+
+			val = (unsigned char) sequence[pos+k];
+			multiplier = (val & (unsigned char) 6) >> 1;
+			hash_full += (((ulong) 1) << (2*k)) * (ulong) multiplier;
+			checker = checker | (val & (unsigned char) 8);
+
+			multiplier = ((unsigned char) 2 + multiplier) & (unsigned char) 3;
+			hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * ((ulong) multiplier);
+
+			
+			// switch(sequence[pos+k]){
+			// 	case 'A': {  }
+			// 	break;
+			// 	case 'C': { hash_full += (((ulong) 1) << (2*k));  }
+			// 	break;
+			// 	case 'G': { hash_full += (((ulong) 1) << (2*k)) * 2;  }
+			// 	break;
+			// 	case 'T': { hash_full += (((ulong) 1) << (2*k)) * 3; }
+			// 	break;
+			// 	case '\n': { }
+			// 	break;
+			// 	default: { bad = 1; }
+			// 	break;
+			// }
+			
 		}
+
+		
 
 		// And reverse now
 		// Notice that before there were only 3 for's
 		// But it seems when opencl compiles this it becomes to complex and throws a CL_OUT_OF_RESOURCES 
 
+
+		/*
 		for(k=FIXED_K; k<20; k++){
 			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
-			switch(sequence[pos+k]){
-				case 'A': { hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 3; }
-				break;
-				case 'C': { /* hash_full += (((ulong) 1) << (2*k)); */ hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 2; }
-				break;
-				case 'G': { /* hash_full += (((ulong) 1) << (2*k)) * 2; */ hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))); }
-				break;
-				case 'T': { /* hash_full += (((ulong) 1) << (2*k)) * 3; */ }
-				break;
-				case '\n': { }
-				break;
-				default: { bad = 1; }
-				break;
-			}
-		}
-		
-		
-		for(k=20; k<kmer_size; k++){
-			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
-			switch(sequence[pos+k]){
-				case 'A': { /*hash12_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 3; */ }
-				break;
-				case 'C': { hash_full += (((ulong) 1) << (2*k)); /* hash12_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 2; */ }
-				break;
-				case 'G': { hash_full += (((ulong) 1) << (2*k)) * 2; /* hash12_rev += (((ulong) 1) << (2*(kmer_size - k - 1))); */ }
-				break;
-				case 'T': { hash_full += (((ulong) 1) << (2*k)) * 3; }
-				break;
-				case '\n': { }
-				break;
-				default: { bad = 1; }
-				break;
-			}
+
+			val = (unsigned char) sequence[pos+k];
+			multiplier = (val & (unsigned char) 6) >> 1;
+			multiplier = ((unsigned char) 2 + multiplier) & (unsigned char) 3;
+			hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * ((ulong) multiplier);
+			checker = checker | (val & (unsigned char) 8);
+
+			
+			// switch(sequence[pos+k]){
+			// 	case 'A': { hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 3; }
+			// 	break;
+			// 	case 'C': { hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 2; }
+			// 	break;
+			// 	case 'G': { hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))); }
+			// 	break;
+			// 	case 'T': {  }
+			// 	break;
+			// 	case '\n': { }
+			// 	break;
+			// 	default: { bad = 1; }
+			// 	break;
+			// }
+			
 		}
 
+		*/
+		
+		
 		for(k=20; k<kmer_size; k++){
 			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
-			switch(sequence[pos+k]){
-				case 'A': { hash12_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 3; }
-				break;
-				case 'C': { /* hash_full += (((ulong) 1) << (2*k)); */ hash12_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 2; }
-				break;
-				case 'G': { /* hash_full += (((ulong) 1) << (2*k)) * 2; */ hash12_rev += (((ulong) 1) << (2*(kmer_size - k - 1))); }
-				break;
-				case 'T': { /* hash_full += (((ulong) 1) << (2*k)) * 3; */ }
-				break;
-				case '\n': { }
-				break;
-				default: { bad = 1; }
-				break;
-			}
+
+			val = (unsigned char) sequence[pos+k];
+			multiplier = (val & (unsigned char) 6) >> 1;
+			hash_full += (((ulong) 1) << (2*k)) * (ulong) multiplier;
+			checker = checker | (val & (unsigned char) 8);
+
+			multiplier = ((unsigned char) 2 + multiplier) & (unsigned char) 3;
+			hash12_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * ((ulong) multiplier);
+
+			
+			// switch(sequence[pos+k]){
+			// 	case 'A': { }
+			// 	break;
+			// 	case 'C': { hash_full += (((ulong) 1) << (2*k)); }
+			// 	break;
+			// 	case 'G': { hash_full += (((ulong) 1) << (2*k)) * 2;  }
+			// 	break;
+			// 	case 'T': { hash_full += (((ulong) 1) << (2*k)) * 3; }
+			// 	break;
+			// 	case '\n': { }
+			// 	break;
+			// 	default: { bad = 1; }
+			// 	break;
+			// }
+			
 		}
+
+		/*
+		for(k=20; k<kmer_size; k++){
+			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
+
+			
+
+			val = (unsigned char) sequence[pos+k];
+			multiplier = (val & (unsigned char) 6) >> 1;
+			multiplier = ((unsigned char) 2 + multiplier) & (unsigned char) 3;
+			hash12_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * ((ulong) multiplier);
+			checker = checker | (val & (unsigned char) 8);
+
+			
+			// switch(sequence[pos+k]){
+			// 	case 'A': { hash12_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 3; }
+			// 	break;
+			// 	case 'C': {  hash12_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 2; }
+			// 	break;
+			// 	case 'G': {  hash12_rev += (((ulong) 1) << (2*(kmer_size - k - 1))); }
+			// 	break;
+			// 	case 'T': {  }
+			// 	break;
+			// 	case '\n': { }
+			// 	break;
+			// 	default: { bad = 1; }
+			// 	break;
+			// }
+
+			
+			
+		}
+		*/
+		
 		
 
 		hash_full_rev += hash12_rev;
 
 
-		if(bad == 0){
+		if(checker == (unsigned char) 0){
+		//if(bad == 0){
 			// Index with prefix
 			if(hash_table[hash12].key == hash_full){
 				hash_table[hash12].pos_in_y = pos + offset;

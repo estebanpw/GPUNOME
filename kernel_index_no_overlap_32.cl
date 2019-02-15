@@ -37,6 +37,12 @@ __kernel void kernel_index(__global Hash_item * hash_table, __global Parameters 
 	ulong offset = params->offset;
 	ulong j, k;
 
+	/*
+	unsigned char converter[(unsigned) 'T' + 1];
+	for(j=0;j<(unsigned) 'T'+1; j++) converter[j] = 0;
+	converter['A'] = 0; converter['C'] = 1; converter['G'] = 2; converter['T'] = 3; converter['N'] = 4;
+	*/
+
 	// Will this work?
 	/*
 	ulong pow4[33]={1L, 4L, 16L, 64L, 256L, 1024L, 4096L, 16384L, 65536L, 
@@ -66,10 +72,20 @@ __kernel void kernel_index(__global Hash_item * hash_table, __global Parameters 
 		
 
 		ulong hash12 = 0, hash_full = 0;
+		unsigned char checker = 0, multiplier = 0, val;
 		
-		unsigned char bad = 0;
+		//unsigned char bad = 0;
 		for(k=0; k<FIXED_K; k++){
 			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
+
+			val = (unsigned char) sequence[pos+k];
+			multiplier = (val & (unsigned char) 6) >> 1;
+			//hash12 += (((ulong) 1) << (2*k)) * (ulong) converter[sequence[pos+k]];
+			hash12 += (((ulong) 1) << (2*k)) * (ulong) multiplier;
+			checker = checker | (val & (unsigned char) 8);
+
+			/*
+
 			switch(sequence[pos+k]){
 				case 'A': {}
 				break;
@@ -85,12 +101,22 @@ __kernel void kernel_index(__global Hash_item * hash_table, __global Parameters 
 				default: { bad = 1; }
 				break;
 			}
+
+			*/
 		}
 
 		hash_full = hash12;
 		
+		
 		for(k=FIXED_K; k<params->kmer_size; k+=params->z_value){
 			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
+
+			val = (unsigned char) sequence[pos+k];
+			multiplier = (val & (unsigned char) 6) >> 1;
+			hash_full += (((ulong) 1) << (2*k)) * (ulong) multiplier;
+			checker = checker | (val & (unsigned char) 8);
+
+			/*
 			switch(sequence[pos+k]){
 				case 'A': {}
 				break;
@@ -105,10 +131,13 @@ __kernel void kernel_index(__global Hash_item * hash_table, __global Parameters 
 				default: { bad = 1; }
 				break;
 			}
+			*/
 		}
+		
 
-
-		if(bad == 0){
+		
+		//if(bad == 0){
+		if(checker == (unsigned char) 0){
 			// Index with prefix
 			hash_table[hash12].key = hash_full;
 			hash_table[hash12].pos_in_x = pos + offset;
@@ -118,7 +147,7 @@ __kernel void kernel_index(__global Hash_item * hash_table, __global Parameters 
 
 			//hash_table[hash12].bitmask[pos % 8] = (unsigned char) 1;
 		}	
-
+		
 		
 	}
 	

@@ -42,9 +42,13 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 	ulong offset = params->offset;
 	ulong j, k;
 
-	// Debugging
-	//hash_table[0].repeat = i;
-	//hash_table[1].repeat = local_size;
+	
+	/*
+	unsigned char converter[(unsigned) 'T' + 1];
+	for(j=0;j<(unsigned) 'T'+1; j++) converter[j] = 0;
+	converter['A'] = 0; converter['C'] = 1; converter['G'] = 2; converter['T'] = 3; converter['N'] = 4;
+	*/
+	
 	
 	// Until reaching end of sequence
 	for(j=0; j<kmers_in_work_item; j++){
@@ -63,11 +67,20 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 		
 
 		ulong hash12 = 0, hash12_rev = 0, hash_full = 0, hash_full_rev = 0;
+		unsigned char checker = 0, multiplier = 0, val;
 		
 		// Forward part for first 12
-		unsigned char bad = 0;
+		//unsigned char bad = 0;
 		for(k=0; k<FIXED_K; k++){
 			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
+
+			//hash12 += (((ulong) 1) << (2*k)) * (ulong) converter[sequence[pos+k]];
+			val = (unsigned char) sequence[pos+k];
+			multiplier = (val & (unsigned char) 6) >> 1;
+			hash12 += (((ulong) 1) << (2*k)) * (ulong) multiplier;
+			checker = checker | (val & (unsigned char) 8);
+			//checker = checker | ((unsigned char)converter[sequence[pos+k]] & (unsigned char) 4);
+			/*
 			switch(sequence[pos+k]){
 				case 'A': {  }
 				break;
@@ -82,6 +95,7 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 				default: { bad = 1; }
 				break;
 			}
+			*/
 		}
 		
 		hash_full = hash12;
@@ -89,6 +103,15 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 		// Forward part for non indexing
 		for(k=FIXED_K; k<kmer_size; k+=ZVAL){
 			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
+
+			val = (unsigned char) sequence[pos+k];
+			multiplier = (val & (unsigned char) 6) >> 1;
+			hash_full += (((ulong) 1) << (2*k)) * (ulong) multiplier;
+			checker = checker | (val & (unsigned char) 8);
+			//checker = checker | ((unsigned char)converter[sequence[pos+k]] & (unsigned char) 4);
+
+			/*
+
 			switch(sequence[pos+k]){
 				case 'A': {   }
 				break;
@@ -103,10 +126,25 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 				default: { bad = 1; }
 				break;
 			}
+			*/
 		}
 
 		// Reverse part for non indexing nucleotides
 		for(k=3; k<20; k+=ZVAL){
+
+			// Reasoning: take the letter and extract 2nd and 3rd column -> this is the mapping
+			// Now shift it one to the right so it becomes rightmost value (0,1,2,3)
+			// Notice that it goes A:00, C:01, G:11, T:10
+			// But the reverse mapping must map A to T and C to G
+			// So we need f(00) = 10, f(01) = 11, f(11) = 01 and f(10) = 00
+			// So we invert the 2nd column by adding 2 and binary & with 3 which is f(x)
+			val = (unsigned char) sequence[pos+k];
+			multiplier = (val & (unsigned char) 6) >> 1;
+			multiplier = ((unsigned char) 2 + multiplier) & (unsigned char) 3;
+			hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * ((ulong) multiplier);
+			checker = checker | (val & (unsigned char) 8);
+			//checker = checker | ((unsigned char)converter[sequence[pos+k]] & (unsigned char) 4);
+			/*
 			switch(sequence[pos+k]){
 				//case 'A': { hash_full_rev += pow4[kmer_size - k - 1] * 3; }
 				case 'A': { hash_full_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 3; }
@@ -122,11 +160,20 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 				default: { bad = 1; }
 				break;
 			}
+			*/
 		}
 
 		// Reverse part for indexing nucleotides
 		for(k=20; k<kmer_size; k++){
 			// Restriction: Make sure input sequences have no ">" lines and all letters are uppercase
+			val = (unsigned char) sequence[pos+k];
+			multiplier = (val & (unsigned char) 6) >> 1;
+			multiplier = ((unsigned char) 2 + multiplier) & (unsigned char) 3;
+			hash12_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * ((ulong) multiplier);
+			checker = checker | (val & (unsigned char) 8);
+			//checker = checker | ((unsigned char)converter[sequence[pos+k]] & (unsigned char) 4);
+
+			/*
 			switch(sequence[pos+k]){
 				case 'A': { hash12_rev += (((ulong) 1) << (2*(kmer_size - k - 1))) * 3; }
 				break;
@@ -141,12 +188,15 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 				default: { bad = 1; }
 				break;
 			}
+			*/
 		}
 
 		hash_full_rev += hash12_rev;
 
 
-		if(bad == 0){
+
+		
+		if(checker == (unsigned char) 0){
 
 			// Index with prefix
 			if(hash_table[hash12].key == hash_full){
@@ -168,7 +218,7 @@ __kernel void kernel_match(__global Hash_item * hash_table, __global Parameters 
 				atom_inc(&hash_table[hash12_rev].repeat);
 			}
 		}
-
+		
 		
 		//hash_table[hash12].bitmask[pos % 8] = (unsigned char) 1;
 		
